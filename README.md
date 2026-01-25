@@ -14,6 +14,7 @@ This repository contains everything needed to:
 ## Credits
 
 This project is based on [Clawdbot](https://github.com/clawdbot/clawdbot) - a self-hosted AI assistant control plane.
+Donate to the creator of Clawdbot if you like his work: https://github.com/sponsors/steipete. 
 
 ## Quick Start (Local Testing)
 
