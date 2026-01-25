@@ -1,0 +1,25 @@
+# Git
+.git
+.gitignore
+
+# GitHub
+.github
+
+# Documentation
+*.md
+LICENSE
+
+# Editor
+.vscode
+.idea
+
+# Local testing
+data/
+test-data/
+
+# Umbrel app definition (not needed in image)
+umbrel-app/
+
+# OS
+.DS_Store
+Thumbs.db

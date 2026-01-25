@@ -1,0 +1,29 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+dist/
+node_modules/
+
+# Docker
+*.log
+
+# Local test data
+data/
+test-data/
+
+# Secrets (never commit these!)
+.env
+.env.local
+*.pem
+*.key
+secrets/
