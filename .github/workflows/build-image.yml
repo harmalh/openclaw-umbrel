@@ -29,6 +29,11 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/clawdbot-umbrel
 
+# Workflow-level permissions for GHCR package publishing
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   check-version:
     runs-on: ubuntu-latest
