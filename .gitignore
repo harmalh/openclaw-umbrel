@@ -17,9 +17,9 @@ node_modules/
 # Docker
 *.log
 
-# Local test data
-data/
-test-data/
+# Local test data (repo root only, not umbrel-app/*/data/)
+/data/
+/test-data/
 
 # Secrets (never commit these!)
 .env
