@@ -12,6 +12,7 @@ LICENSE
 # Editor
 .vscode
 .idea
+.cursor
 
 # Local testing
 data/
@@ -19,6 +20,21 @@ test-data/
 
 # Umbrel app definition (not needed in image)
 umbrel-app/
+
+# Scripts (update automation, not needed in image)
+scripts/
+
+# Remotion video project (large, not needed in image)
+video/
+
+# Pull request cache
+pull-requests/
+
+# Agent transcripts
+agent-transcripts/
+
+# Plans
+plans/
 
 # OS
 .DS_Store

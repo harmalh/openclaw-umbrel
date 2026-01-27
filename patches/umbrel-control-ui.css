@@ -1,0 +1,162 @@
+/**
+ * Umbrel Control UI Override
+ * ==========================
+ * This stylesheet fixes UI issues that occur when Clawdbot is embedded
+ * in Umbrel's app_proxy iframe context.
+ *
+ * Issues addressed:
+ * 1. Config page doesn't scroll (content overflows instead of scrolling)
+ * 2. Header text gets clipped due to max-height constraint
+ *
+ * These fixes mirror changes already merged to upstream Clawdbot `main` branch.
+ * Once a tagged release includes these fixes, this override can be removed.
+ *
+ * See: https://github.com/moltbot/clawdbot (ui/src/styles/config.css, layout.css)
+ */
+
+/* =============================================================================
+   Config Page Scroll Fix
+   =============================================================================
+   Problem: In v2026.1.24, .config-layout uses min-height which allows the
+   container to grow unbounded. Combined with missing min-height:0 on flex
+   children, the intended scroll container (.config-content) never activates.
+
+   Fix: Use a fixed height calculation and ensure flex children can shrink
+   below their content size to allow nested overflow:auto to work.
+   ============================================================================= */
+
+/* Override .config-layout to use fixed height instead of min-height */
+.config-layout {
+  /* Override: min-height -> height for proper scroll containment */
+  min-height: unset !important;
+  height: calc(100vh - 160px) !important;
+}
+
+/* For dynamic viewport units (mobile-friendly) */
+@supports (height: 100dvh) {
+  .config-layout {
+    height: calc(100dvh - 160px) !important;
+  }
+}
+
+/* Ensure sidebar can shrink and contain its scroll */
+.config-sidebar {
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Ensure main content area can shrink and contain its scroll */
+.config-main {
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* =============================================================================
+   Header Visibility Fix
+   =============================================================================
+   Problem: .content-header has max-height: 90px with overflow: hidden, which
+   can clip the header text when content wraps or when there's additional
+   metadata displayed.
+
+   Fix: Increase max-height to accommodate typical header content while
+   preserving the chat-focus collapse animation behavior.
+   ============================================================================= */
+
+.content-header {
+  /* Increase max-height to prevent clipping; animation still works */
+  max-height: 120px !important;
+}
+
+/* Ensure page title and subtitle have adequate space */
+.content-header > div:first-child {
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+/* =============================================================================
+   Umbrel-specific viewport adjustments
+   =============================================================================
+   Umbrel embeds apps in an iframe. The viewport may be slightly different
+   than standalone. These adjustments ensure proper sizing.
+   ============================================================================= */
+
+/* Ensure the shell takes full available height in Umbrel's iframe */
+.shell {
+  min-height: 100vh;
+}
+
+@supports (min-height: 100dvh) {
+  .shell {
+    min-height: 100dvh;
+  }
+}
+
+/* =============================================================================
+   Scrollbar Visibility & Width Enhancement
+   =============================================================================
+   Problem: 
+   1. Default scrollbars are thin (6-8px) and hard to see/grab
+   2. Overlay scrollbars fade away and appear "half inside" the content
+   3. Firefox scrollbars may not be visible with dark colors
+
+   Fix: 
+   - Use scrollbar-gutter: stable to reserve permanent space (no overlay)
+   - Force overflow-y: scroll to always show scrollbar
+   - Use high-contrast colors (light thumb on dark track)
+   - Standard 16px width for visibility and usability
+   ============================================================================= */
+
+/* Reserve permanent space for scrollbar - prevents overlay behavior */
+.config-content,
+.config-sidebar,
+.content {
+  scrollbar-gutter: stable !important;
+}
+
+/* Force scrollbar to always be visible on config content */
+.config-content {
+  overflow-y: scroll !important;
+}
+
+/* ---- WebKit browsers (Chrome, Safari, Edge) ---- */
+
+/* Global scrollbar styling */
+::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a1a;
+  border: 1px solid #333;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #666;
+  border: 3px solid #1a1a1a;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #888;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: #aaa;
+}
+
+/* Scrollbar corner (where horizontal and vertical meet) */
+::-webkit-scrollbar-corner {
+  background: #1a1a1a;
+}
+
+/* ---- Firefox (standard CSS properties) ---- */
+
+/* Apply to scrollable containers - high contrast colors */
+.config-content,
+.config-sidebar,
+.content,
+html {
+  scrollbar-width: auto !important;
+  scrollbar-color: #888 #222 !important;
+}

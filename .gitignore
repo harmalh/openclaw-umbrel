@@ -14,8 +14,16 @@ Thumbs.db
 dist/
 node_modules/
 
+# Remotion
+video/node_modules/
+video/dist/
+video/out/
+video/.remotion/
+
 # Docker
 *.log
+*.tar
+*.tar.gz
 
 # Local test data (repo root only, not umbrel-app/*/data/)
 /data/

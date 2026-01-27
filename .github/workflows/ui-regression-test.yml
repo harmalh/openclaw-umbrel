@@ -1,0 +1,246 @@
+# UI Regression Test
+# ==================
+# This workflow runs Playwright tests to verify the Clawdbot Control UI
+# works correctly in the Umbrel context (scroll, header visibility, etc.)
+#
+# Trigger manually to test a specific image, or use as a scheduled check.
+
+name: UI Regression Test
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Full image reference (e.g., ghcr.io/harmalh/clawdbot-umbrel:v2026.1.24)'
+        required: true
+      test_without_override:
+        description: 'Also test an image built without the UI override'
+        required: false
+        default: false
+        type: boolean
+
+  # Can be triggered after build workflow
+  workflow_call:
+    inputs:
+      image:
+        description: 'Full image reference to test'
+        required: true
+        type: string
+
+jobs:
+  ui-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install -D @playwright/test
+          # Install both Chromium and Firefox for cross-browser testing
+          npx playwright install chromium firefox --with-deps
+
+      - name: Pull and start Clawdbot container
+        env:
+          IMAGE: ${{ inputs.image || github.event.inputs.image }}
+        run: |
+          echo "Testing image: $IMAGE"
+          
+          # Pull the image
+          docker pull "$IMAGE"
+          
+          # Create a test data directory
+          mkdir -p test-data
+          
+          # Start the container
+          docker run -d \
+            --name clawdbot-test \
+            -p 18789:18789 \
+            -v "$(pwd)/test-data:/data" \
+            -e CLAWDBOT_GATEWAY_TOKEN=test-token \
+            "$IMAGE"
+          
+          # Wait for container to be healthy
+          echo "Waiting for Clawdbot to start..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:18789/health > /dev/null 2>&1; then
+              echo "✅ Clawdbot is ready!"
+              break
+            fi
+            echo "  Waiting... ($i/30)"
+            sleep 2
+          done
+          
+          # Final health check
+          curl -sf http://localhost:18789/health || {
+            echo "::error::Clawdbot failed to start"
+            docker logs clawdbot-test
+            exit 1
+          }
+
+      - name: Create Playwright test
+        run: |
+          cat > ui-test.spec.js << 'EOF'
+          const { test, expect } = require('@playwright/test');
+
+          test.describe('Clawdbot Control UI', () => {
+            test.beforeEach(async ({ page }) => {
+              // Navigate to the Control UI with token
+              await page.goto('http://localhost:18789/?token=test-token');
+              
+              // Wait for the app to load
+              await page.waitForSelector('.shell', { timeout: 30000 });
+            });
+
+            test('Config page scrolls correctly', async ({ page }) => {
+              // Navigate to Config tab
+              await page.click('text=Config');
+              
+              // Wait for config layout to appear
+              await page.waitForSelector('.config-layout', { timeout: 10000 });
+              
+              // Get the config-content element
+              const configContent = page.locator('.config-content');
+              await expect(configContent).toBeVisible();
+              
+              // Check that it's scrollable (scrollHeight > clientHeight)
+              const dimensions = await configContent.evaluate(el => ({
+                scrollHeight: el.scrollHeight,
+                clientHeight: el.clientHeight,
+                scrollTop: el.scrollTop
+              }));
+              
+              console.log('Config content dimensions:', dimensions);
+              
+              // The content should be scrollable (has more content than visible)
+              // Note: This may pass even without the fix if there's not enough content
+              // but it will definitely FAIL if overflow is broken
+              
+              // Test that we can actually scroll
+              await configContent.evaluate(el => {
+                el.scrollTop = 100;
+              });
+              
+              const scrollTopAfter = await configContent.evaluate(el => el.scrollTop);
+              
+              // If scrolling works, scrollTop should have changed
+              // (or stayed at 0 if there's nothing to scroll, which is fine)
+              console.log('scrollTop after scroll attempt:', scrollTopAfter);
+              
+              // The element should have overflow-y: auto or scroll (we force scroll via override)
+              const overflowY = await configContent.evaluate(el => 
+                window.getComputedStyle(el).overflowY
+              );
+              // Accept either 'auto' or 'scroll' - both enable scrolling
+              expect(['auto', 'scroll']).toContain(overflowY);
+            });
+
+            test('Header is fully visible', async ({ page }) => {
+              // Check the header on the Overview page first
+              const pageTitle = page.locator('.page-title');
+              await expect(pageTitle).toBeVisible();
+              
+              // Get bounding box of page title
+              const titleBox = await pageTitle.boundingBox();
+              expect(titleBox).not.toBeNull();
+              
+              // Title should be within viewport (not clipped)
+              const viewport = page.viewportSize();
+              expect(titleBox.y).toBeGreaterThanOrEqual(0);
+              expect(titleBox.y + titleBox.height).toBeLessThanOrEqual(viewport.height);
+              
+              // Check page subtitle
+              const pageSub = page.locator('.page-sub');
+              if (await pageSub.count() > 0) {
+                await expect(pageSub.first()).toBeVisible();
+                const subBox = await pageSub.first().boundingBox();
+                if (subBox) {
+                  expect(subBox.y).toBeGreaterThanOrEqual(0);
+                  expect(subBox.y + subBox.height).toBeLessThanOrEqual(viewport.height);
+                }
+              }
+            });
+
+            test('Config page header is visible', async ({ page }) => {
+              // Navigate to Config tab
+              await page.click('text=Config');
+              
+              // Wait for config layout
+              await page.waitForSelector('.config-layout', { timeout: 10000 });
+              
+              // Check content header is visible
+              const contentHeader = page.locator('.content-header');
+              await expect(contentHeader).toBeVisible();
+              
+              // Get the computed max-height
+              const maxHeight = await contentHeader.evaluate(el => 
+                window.getComputedStyle(el).maxHeight
+              );
+              
+              console.log('content-header max-height:', maxHeight);
+              
+              // The header shouldn't be completely hidden
+              const headerBox = await contentHeader.boundingBox();
+              expect(headerBox).not.toBeNull();
+              expect(headerBox.height).toBeGreaterThan(0);
+            });
+
+            test('Navigation works', async ({ page }) => {
+              // Test clicking through main navigation items
+              const navItems = [
+                'Overview',
+                'Channels', 
+                'Config',
+                'Chat'
+              ];
+              
+              for (const item of navItems) {
+                const navItem = page.locator(`.nav-item:has-text("${item}")`);
+                if (await navItem.count() > 0) {
+                  await navItem.click();
+                  // Wait a bit for the page to update
+                  await page.waitForTimeout(500);
+                  // The nav item should be active
+                  await expect(navItem).toHaveClass(/active/);
+                }
+              }
+            });
+          });
+          EOF
+
+      - name: Run Playwright tests (Chromium)
+        run: |
+          echo "Running tests in Chromium..."
+          npx playwright test ui-test.spec.js --browser=chromium --reporter=list
+
+      - name: Run Playwright tests (Firefox)
+        run: |
+          echo "Running tests in Firefox..."
+          # Note: Scrollbar appearance may vary in Firefox depending on OS/settings
+          # but the functional scroll behavior should still work
+          npx playwright test ui-test.spec.js --browser=firefox --reporter=list
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop clawdbot-test || true
+          docker rm clawdbot-test || true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7

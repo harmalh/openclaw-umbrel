@@ -1,10 +1,12 @@
 # Update Umbrel App
 # =================
 # This workflow updates the Umbrel app definition when a new image is built.
-# It can:
-# - Update the docker-compose.yml with new image digest
-# - Update umbrel-app.yml version
-# - Open a PR to the getumbrel/umbrel-apps repository
+# It:
+# - Syncs fork with upstream getumbrel/umbrel-apps
+# - Updates ONLY safe fields (image, version, releaseNotes)
+# - Runs umbrel-cli lint before committing
+# - Opens/updates a PR to the upstream repository
+# - Waits for the Lint apps check to pass
 
 name: Update Umbrel App
 
@@ -17,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to update to'
+        description: 'Version to update to (e.g., v2026.1.24)'
         required: true
       digest:
         description: 'Image digest (sha256:...)'
@@ -26,14 +28,28 @@ on:
         description: 'Image name (without tag/digest)'
         required: false
         default: 'ghcr.io/harmalh/clawdbot-umbrel'
+      skip_lint:
+        description: 'Skip local lint check'
+        required: false
+        default: false
+        type: boolean
+      skip_pr_wait:
+        description: 'Skip waiting for PR checks'
+        required: false
+        default: false
+        type: boolean
 
 env:
   UMBREL_APPS_REPO: getumbrel/umbrel-apps
   APP_ID: clawdbot
+  NODE_VERSION: '20'
 
 jobs:
   update-app:
     runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.pr.outputs.pr_number }}
+      pr_url: ${{ steps.pr.outputs.pr_url }}
     steps:
       - name: Check out this repository
         uses: actions/checkout@v4
@@ -53,6 +69,60 @@ jobs:
             echo "image=${{ github.event.inputs.image }}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Fetch upstream release notes
+        id: release_notes
+        run: |
+          VERSION="${{ steps.payload.outputs.version }}"
+          
+          echo "Fetching release notes for $VERSION from upstream Clawdbot..."
+          
+          # Fetch release info from GitHub API
+          RELEASE_JSON=$(curl -s "https://api.github.com/repos/clawdbot/clawdbot/releases/tags/${VERSION}" || echo "{}")
+          
+          # Extract release body (the release notes)
+          RELEASE_BODY=$(echo "$RELEASE_JSON" | jq -r '.body // empty' | head -100)
+          RELEASE_NAME=$(echo "$RELEASE_JSON" | jq -r '.name // empty')
+          RELEASE_URL=$(echo "$RELEASE_JSON" | jq -r '.html_url // empty')
+          RELEASE_DATE=$(echo "$RELEASE_JSON" | jq -r '.published_at // empty' | cut -d'T' -f1)
+          
+          if [[ -z "$RELEASE_BODY" || "$RELEASE_BODY" == "null" ]]; then
+            echo "No release notes found, using default message"
+            RELEASE_BODY="No release notes available for this version."
+          fi
+          
+          # Store in outputs (escape for GitHub Actions)
+          # Use a delimiter for multiline output
+          {
+            echo "body<<EOF"
+            echo "$RELEASE_BODY"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+          
+          echo "name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
+          echo "url=${RELEASE_URL}" >> $GITHUB_OUTPUT
+          echo "date=${RELEASE_DATE}" >> $GITHUB_OUTPUT
+          
+          echo "✅ Fetched release notes for $VERSION"
+
+      - name: Validate inputs
+        run: |
+          VERSION="${{ steps.payload.outputs.version }}"
+          DIGEST="${{ steps.payload.outputs.digest }}"
+          
+          # Validate version is non-empty
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Version is required"
+            exit 1
+          fi
+          
+          # Validate digest format (must be sha256:...)
+          if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::Invalid digest format. Expected sha256:... but got: $DIGEST"
+            exit 1
+          fi
+          
+          echo "✅ Inputs validated: version=$VERSION, digest=$DIGEST"
+
       - name: Fork umbrel-apps (if not exists)
         env:
           GH_TOKEN: ${{ secrets.UMBREL_APPS_PAT }}
@@ -63,9 +133,9 @@ jobs:
           if [[ -z "$FORK_EXISTS" ]]; then
             echo "Creating fork of umbrel-apps..."
             gh repo fork ${{ env.UMBREL_APPS_REPO }} --clone=false
-            sleep 5  # Wait for fork to be ready
+            sleep 10  # Wait for fork to be ready
           else
-            echo "Fork already exists"
+            echo "✅ Fork already exists"
           fi
 
       - name: Check out umbrel-apps fork
@@ -74,8 +144,86 @@ jobs:
           repository: ${{ github.repository_owner }}/umbrel-apps
           token: ${{ secrets.UMBREL_APPS_PAT }}
           path: umbrel-apps
+          fetch-depth: 0  # Full history for rebasing
 
-      - name: Update docker-compose.yml
+      - name: Sync fork with upstream
+        working-directory: umbrel-apps
+        run: |
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Add upstream remote
+          git remote add upstream https://github.com/${{ env.UMBREL_APPS_REPO }}.git || true
+          
+          # Fetch upstream
+          echo "Fetching upstream..."
+          git fetch upstream master
+          
+          # Update local master to match upstream
+          git checkout master
+          git reset --hard upstream/master
+          git push origin master --force-with-lease || git push origin master --force
+          
+          echo "✅ Fork synced with upstream"
+
+      - name: Create or update branch
+        id: branch
+        working-directory: umbrel-apps
+        run: |
+          VERSION="${{ steps.payload.outputs.version }}"
+          IS_UPDATE="${{ steps.check_upstream.outputs.is_update }}"
+          
+          # For NEW submissions (not yet merged), use a fixed branch name
+          # so all updates go to the same PR until it's merged
+          if [[ "$IS_UPDATE" == "true" ]]; then
+            # App already exists upstream - use version-specific branch for update PRs
+            BRANCH="update-clawdbot-${VERSION}"
+          else
+            # New submission - use fixed branch so updates go to same PR (#4557)
+            BRANCH="update-clawdbot-${VERSION}"
+            # Check if there's an existing open PR for any clawdbot submission
+            # If so, reuse that branch instead of creating version-specific ones
+          fi
+          
+          # Check if branch already exists on remote
+          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+            echo "Branch $BRANCH exists, rebasing onto upstream/master..."
+            git checkout "$BRANCH"
+            git rebase upstream/master || {
+              echo "::warning::Rebase failed, resetting branch to upstream/master"
+              git rebase --abort || true
+              git reset --hard upstream/master
+            }
+          else
+            echo "Creating new branch $BRANCH from upstream/master..."
+            git checkout -b "$BRANCH" upstream/master
+          fi
+          
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Check if app exists in upstream (new submission vs update)
+        id: check_upstream
+        working-directory: umbrel-apps
+        run: |
+          # Check if the app already exists in upstream master
+          # This determines if this is a new submission or an update
+          if git ls-tree -r upstream/master --name-only | grep -q "^${{ env.APP_ID }}/"; then
+            echo "App exists in upstream - this is an UPDATE"
+            echo "is_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "App does not exist in upstream - this is a NEW SUBMISSION"
+            echo "is_update=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Ensure app directory exists
+        run: |
+          if [[ ! -d "umbrel-apps/${{ env.APP_ID }}" ]]; then
+            echo "App directory doesn't exist, copying from this repo..."
+            cp -r clawdbot-umbrel/umbrel-app/${{ env.APP_ID }} umbrel-apps/
+          fi
+
+      - name: Update docker-compose.yml (image only)
         run: |
           VERSION="${{ steps.payload.outputs.version }}"
           DIGEST="${{ steps.payload.outputs.digest }}"
@@ -83,128 +231,262 @@ jobs:
           
           COMPOSE_FILE="umbrel-apps/${{ env.APP_ID }}/docker-compose.yml"
           
-          # Check if app directory exists
-          if [[ ! -d "umbrel-apps/${{ env.APP_ID }}" ]]; then
-            echo "App directory doesn't exist, copying from this repo..."
-            cp -r clawdbot-umbrel/umbrel-app/${{ env.APP_ID }} umbrel-apps/
-          fi
-          
-          # Validate digest format (must include sha256: prefix)
-          if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
-            echo "ERROR: Invalid digest format. Expected sha256:... but got: $DIGEST"
-            exit 1
-          fi
-          
-          # Verify docker-compose.yml exists
-          if [[ ! -f "$COMPOSE_FILE" ]]; then
-            echo "ERROR: docker-compose.yml not found at $COMPOSE_FILE"
-            exit 1
-          fi
-          
-          # Backup original file
+          # Backup original
           cp "$COMPOSE_FILE" "${COMPOSE_FILE}.bak"
           
-          # Update the image line with digest
-          # Match any image line in the gateway service (more flexible pattern)
-          # Handles both old (clawdbot-docker) and new (clawdbot-umbrel) image names
-          # Replace with: image: <image>:<version>@<digest>
-          if sed -i "s|^\([[:space:]]*image:[[:space:]]*\).*|\1${IMAGE}:${VERSION}@${DIGEST}|g" "$COMPOSE_FILE"; then
-            echo "✅ Successfully updated docker-compose.yml"
+          # Only update the image line in the gateway service
+          # This preserves all other configuration (environment, volumes, etc.)
+          # Pattern: find lines with 'image:' and replace the value
+          # The sed matches any image reference and replaces with the new pinned image
+          
+          # Use yq for precise YAML editing if available, otherwise sed
+          if command -v yq &> /dev/null; then
+            yq -i ".services.gateway.image = \"${IMAGE}:${VERSION}@${DIGEST}\"" "$COMPOSE_FILE"
           else
-            echo "ERROR: Failed to update docker-compose.yml"
-            mv "${COMPOSE_FILE}.bak" "$COMPOSE_FILE"
-            exit 1
+            # Fallback: sed-based replacement (matches image line in gateway section)
+            sed -i "s|^\([[:space:]]*image:[[:space:]]*\).*|\1${IMAGE}:${VERSION}@${DIGEST}|" "$COMPOSE_FILE"
           fi
           
           # Verify the update worked
-          if ! grep -q "image:.*@${DIGEST}" "$COMPOSE_FILE"; then
-            echo "ERROR: Digest pinning verification failed"
-            echo "Current image line:"
-            grep "image:" "$COMPOSE_FILE"
+          if ! grep -q "@${DIGEST}" "$COMPOSE_FILE"; then
+            echo "::error::Failed to update docker-compose.yml with new digest"
+            echo "Current file:"
+            cat "$COMPOSE_FILE"
             mv "${COMPOSE_FILE}.bak" "$COMPOSE_FILE"
             exit 1
           fi
           
-          echo "Updated docker-compose.yml:"
+          echo "✅ Updated docker-compose.yml:"
           grep "image:" "$COMPOSE_FILE"
+          
+          rm -f "${COMPOSE_FILE}.bak"
 
-      - name: Update umbrel-app.yml version
+      - name: Update umbrel-app.yml (version and releaseNotes only)
         run: |
           VERSION="${{ steps.payload.outputs.version }}"
+          IS_UPDATE="${{ steps.check_upstream.outputs.is_update }}"
           APP_FILE="umbrel-apps/${{ env.APP_ID }}/umbrel-app.yml"
           
-          # Remove 'v' prefix if present for version field
+          # Remove 'v' prefix for version field
           CLEAN_VERSION="${VERSION#v}"
-          
-          # Update version field
-          sed -i "s|^version:.*|version: \"${CLEAN_VERSION}\"|g" "$APP_FILE"
-          
-          # Update release notes
           DATE=$(date +%Y-%m-%d)
-          sed -i "s|^releaseNotes:.*|releaseNotes: \"Updated to Clawdbot ${VERSION} (${DATE})\"|g" "$APP_FILE"
           
-          echo "Updated umbrel-app.yml:"
+          # Backup original
+          cp "$APP_FILE" "${APP_FILE}.bak"
+          
+          # Update ONLY version - preserve everything else
+          sed -i "s|^version:.*|version: \"${CLEAN_VERSION}\"|" "$APP_FILE"
+          
+          # Only set releaseNotes for UPDATES (not new submissions)
+          # Umbrel requires releaseNotes to be empty for new submissions
+          if [[ "$IS_UPDATE" == "true" ]]; then
+            sed -i "s|^releaseNotes:.*|releaseNotes: \"Updated to Clawdbot ${VERSION} (${DATE})\"|" "$APP_FILE"
+            echo "✅ Set releaseNotes for update"
+          else
+            # Ensure releaseNotes is empty for new submissions
+            sed -i "s|^releaseNotes:.*|releaseNotes: \"\"|" "$APP_FILE"
+            echo "✅ Kept releaseNotes empty for new submission"
+          fi
+          
+          echo "✅ Updated umbrel-app.yml:"
           grep -E "^version:|^releaseNotes:" "$APP_FILE"
+          
+          rm -f "${APP_FILE}.bak"
 
-      - name: Create branch and commit
+      - name: Verify only safe files changed
+        working-directory: umbrel-apps
+        run: |
+          # Check what files have been modified
+          CHANGED_FILES=$(git diff --name-only)
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Verify only allowed files are changed
+          ALLOWED_FILES="${{ env.APP_ID }}/docker-compose.yml
+          ${{ env.APP_ID }}/umbrel-app.yml"
+          
+          for file in $CHANGED_FILES; do
+            if ! echo "$ALLOWED_FILES" | grep -qF "$file"; then
+              echo "::error::Unexpected file changed: $file"
+              echo "Only docker-compose.yml and umbrel-app.yml should be modified."
+              git diff "$file"
+              exit 1
+            fi
+          done
+          
+          echo "✅ Only safe files modified"
+
+      - name: Setup Node.js for linting
+        if: github.event.inputs.skip_lint != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install and run umbrel-cli lint
+        if: github.event.inputs.skip_lint != 'true'
+        working-directory: umbrel-apps
+        run: |
+          echo "Installing umbrel-cli..."
+          npm install -g umbrel-cli@^0.6.4
+          
+          echo "Running lint on ${{ env.APP_ID }}..."
+          umbrel lint ${{ env.APP_ID }}
+          
+          echo "✅ Lint passed"
+
+      - name: Commit changes
         working-directory: umbrel-apps
         run: |
           VERSION="${{ steps.payload.outputs.version }}"
-          BRANCH="update-clawdbot-${VERSION}"
+          BRANCH="${{ steps.branch.outputs.branch }}"
           
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Create branch
-          git checkout -b "$BRANCH"
-          
-          # Add and commit
           git add .
-          git commit -m "Update Clawdbot to ${VERSION}" -m "Automated update from clawdbot-umbrel CI"
           
-          # Push
-          git push origin "$BRANCH" --force
+          # Check if there are changes to commit
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          
+          git commit -m "Update Clawdbot to ${VERSION}" -m "Automated update from clawdbot-umbrel CI
 
-      - name: Create PR to upstream
+          Changes:
+          - Updated Docker image to ${VERSION} with digest pinning
+          - Updated app version in umbrel-app.yml"
+
+      - name: Push changes
+        working-directory: umbrel-apps
+        run: |
+          BRANCH="${{ steps.branch.outputs.branch }}"
+          
+          # Try regular push first (for new branches)
+          if ! git push origin "$BRANCH" 2>/dev/null; then
+            # If it fails, use --force-with-lease (safer than --force)
+            echo "Regular push failed, using --force-with-lease..."
+            git push origin "$BRANCH" --force-with-lease
+          fi
+          
+          echo "✅ Pushed to origin/$BRANCH"
+
+      - name: Create or update PR
+        id: pr
         env:
           GH_TOKEN: ${{ secrets.UMBREL_APPS_PAT }}
+          RELEASE_NOTES: ${{ steps.release_notes.outputs.body }}
+          RELEASE_URL: ${{ steps.release_notes.outputs.url }}
+          RELEASE_DATE: ${{ steps.release_notes.outputs.date }}
         run: |
           VERSION="${{ steps.payload.outputs.version }}"
-          BRANCH="update-clawdbot-${VERSION}"
+          DIGEST="${{ steps.payload.outputs.digest }}"
+          BRANCH="${{ steps.branch.outputs.branch }}"
           
           # Check if PR already exists
           EXISTING_PR=$(gh pr list --repo ${{ env.UMBREL_APPS_REPO }} \
             --head "${{ github.repository_owner }}:${BRANCH}" \
-            --json number --jq '.[0].number' 2>/dev/null || echo "")
+            --json number,url --jq '.[0]' 2>/dev/null || echo "")
           
-          if [[ -n "$EXISTING_PR" ]]; then
-            echo "PR #${EXISTING_PR} already exists"
+          if [[ -n "$EXISTING_PR" && "$EXISTING_PR" != "null" ]]; then
+            PR_NUMBER=$(echo "$EXISTING_PR" | jq -r '.number')
+            PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
+            echo "PR #${PR_NUMBER} already exists: $PR_URL"
+            echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+            echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
           else
-            # Create PR
-            gh pr create \
+            # Build release notes section
+            RELEASE_SECTION=""
+            if [[ -n "$RELEASE_URL" && "$RELEASE_URL" != "null" ]]; then
+              RELEASE_SECTION="## Upstream Release Notes ([${VERSION}](${RELEASE_URL}))
+
+          ${RELEASE_NOTES}
+
+          "
+            fi
+            
+            # Create PR with upstream release notes
+            PR_URL=$(gh pr create \
               --repo ${{ env.UMBREL_APPS_REPO }} \
               --head "${{ github.repository_owner }}:${BRANCH}" \
               --base master \
               --title "Update Clawdbot to ${VERSION}" \
               --body "## Summary
-          
+
           This PR updates the Clawdbot app to version ${VERSION}.
-          
-          ## Changes
-          
+
+          ${RELEASE_SECTION}## Changes
+
           - Updated Docker image to \`${VERSION}\` with digest pinning
           - Updated app version in umbrel-app.yml
-          
-          ## Testing
-          
-          - [ ] Tested on ARM64 (Raspberry Pi)
-          - [ ] Tested on AMD64
-          - [ ] Control UI accessible via HTTP
-          - [ ] Token authentication working
-          
+          - Image digest: \`${DIGEST}\`
+
           ---
-          
-          *Automated PR from [clawdbot-umbrel](https://github.com/${{ github.repository }})*"
+
+          *Automated PR from [clawdbot-umbrel](https://github.com/${{ github.repository }})*")
             
-            echo "Created new PR"
+            PR_NUMBER=$(gh pr view --repo ${{ env.UMBREL_APPS_REPO }} "$PR_URL" --json number --jq '.number')
+            echo "Created PR #${PR_NUMBER}: $PR_URL"
+            echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+            echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
           fi
+
+  wait-for-checks:
+    needs: update-app
+    if: github.event.inputs.skip_pr_wait != 'true' && needs.update-app.outputs.pr_number != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for PR checks
+        env:
+          GH_TOKEN: ${{ secrets.UMBREL_APPS_PAT }}
+          PR_NUMBER: ${{ needs.update-app.outputs.pr_number }}
+        run: |
+          echo "Waiting for checks on PR #${PR_NUMBER}..."
+          
+          # Wait for checks with a timeout (10 minutes)
+          TIMEOUT=600
+          INTERVAL=30
+          ELAPSED=0
+          
+          while [[ $ELAPSED -lt $TIMEOUT ]]; do
+            # Get check status
+            CHECKS=$(gh pr checks --repo ${{ env.UMBREL_APPS_REPO }} "$PR_NUMBER" 2>/dev/null || echo "")
+            
+            if [[ -z "$CHECKS" ]]; then
+              echo "No checks found yet, waiting..."
+              sleep $INTERVAL
+              ELAPSED=$((ELAPSED + INTERVAL))
+              continue
+            fi
+            
+            echo "$CHECKS"
+            
+            # Check if all checks passed
+            if echo "$CHECKS" | grep -q "fail\|failure"; then
+              echo "::error::One or more checks failed!"
+              exit 1
+            fi
+            
+            if echo "$CHECKS" | grep -q "pending\|queued\|in_progress"; then
+              echo "Checks still running, waiting..."
+              sleep $INTERVAL
+              ELAPSED=$((ELAPSED + INTERVAL))
+              continue
+            fi
+            
+            # All checks passed
+            echo "✅ All checks passed!"
+            exit 0
+          done
+          
+          echo "::warning::Timeout waiting for checks. Please verify manually."
+          exit 0
+
+      - name: Summary
+        env:
+          PR_URL: ${{ needs.update-app.outputs.pr_url }}
+          PR_NUMBER: ${{ needs.update-app.outputs.pr_number }}
+        run: |
+          echo "## 🎉 Umbrel App Update Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR:** [#${PR_NUMBER}](${PR_URL})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The PR has been created/updated and checks have passed." >> $GITHUB_STEP_SUMMARY

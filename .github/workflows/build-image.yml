@@ -3,14 +3,23 @@
 # This workflow builds a multi-arch Docker image when:
 # - A new Clawdbot version is released upstream
 # - Manually triggered via workflow_dispatch
-# - Scheduled to check for new releases weekly
+# - Scheduled to check for new releases every 6 hours
+# - Changes pushed to Dockerfile or UI override patches (auto-rebuild)
 
 name: Build and Push Image
 
 on:
-  # Check for new releases weekly
+  # Check for new releases every 6 hours
   schedule:
-    - cron: '0 6 * * 0'  # Every Sunday at 6:00 AM UTC
+    - cron: '0 */6 * * *'  # Every 6 hours at minute 0
+  
+  # Auto-rebuild when UI override or Dockerfile changes
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - 'patches/**'
+      - 'entrypoint.sh'
   
   # Manual trigger with optional version override
   workflow_dispatch:
@@ -22,16 +31,28 @@ on:
       force_build:
         description: 'Force build even if version already exists'
         required: false
-        default: 'false'
+        default: false
+        type: boolean
+      skip_umbrel_update:
+        description: 'Skip triggering Umbrel app update workflow'
+        required: false
+        default: false
+        type: boolean
+      umbrel_ui_override:
+        description: 'Apply Umbrel UI override CSS (fixes scroll/header issues)'
+        required: false
+        default: true
         type: boolean
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/clawdbot-umbrel
 
-# Workflow-level permissions for GHCR package publishing
+# Workflow-level permissions
+# - contents: write is required for repository_dispatch to trigger update workflow
+# - packages: write is required for GHCR package publishing
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -40,6 +61,7 @@ jobs:
     outputs:
       should_build: ${{ steps.check.outputs.should_build }}
       version: ${{ steps.check.outputs.version }}
+      has_upstream_fix: ${{ steps.check_ui_fix.outputs.has_upstream_fix }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -47,10 +69,103 @@ jobs:
       - name: Get latest Clawdbot release
         id: upstream
         run: |
-          # Get latest release from Clawdbot repo
-          LATEST=$(curl -s https://api.github.com/repos/clawdbot/clawdbot/releases/latest | jq -r '.tag_name // "main"')
+          # Get latest release from Clawdbot repo with proper error handling
+          echo "Fetching latest release from Clawdbot repository..."
+          
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" https://api.github.com/repos/clawdbot/clawdbot/releases/latest)
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+          
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "::warning::GitHub API returned HTTP $HTTP_CODE. Falling back to 'main' branch."
+            echo "Response: $RESPONSE_BODY"
+            echo "latest_version=main" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          LATEST=$(echo "$RESPONSE_BODY" | jq -r '.tag_name // empty')
+          
+          # Validate tag format (must be non-empty and start with 'v' for releases)
+          if [[ -z "$LATEST" ]]; then
+            echo "::warning::No tag_name found in release response. Falling back to 'main' branch."
+            echo "latest_version=main" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Validate version tag format (e.g., v2026.1.24 or v1.0.0)
+          if [[ ! "$LATEST" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "$LATEST" != "main" ]]; then
+            echo "::warning::Unexpected version format: '$LATEST'. Proceeding anyway."
+          fi
+          
           echo "latest_version=${LATEST}" >> $GITHUB_OUTPUT
-          echo "Latest upstream version: ${LATEST}"
+          echo "✅ Latest upstream version: ${LATEST}"
+
+      - name: Check if upstream includes UI scroll fix
+        id: check_ui_fix
+        env:
+          LATEST_VERSION: ${{ steps.upstream.outputs.latest_version }}
+          INPUT_VERSION: ${{ github.event.inputs.clawdbot_version }}
+        run: |
+          # Determine which version to check
+          VERSION="${INPUT_VERSION:-$LATEST_VERSION}"
+          
+          echo "Checking if $VERSION includes the Config scroll fix..."
+          
+          # Fetch the config.css from upstream for this version
+          CONFIG_CSS_URL="https://raw.githubusercontent.com/clawdbot/clawdbot/${VERSION}/ui/src/styles/config.css"
+          
+          CONFIG_CSS=$(curl -sf "$CONFIG_CSS_URL" 2>/dev/null || echo "")
+          
+          if [[ -z "$CONFIG_CSS" ]]; then
+            echo "::warning::Could not fetch config.css for $VERSION, assuming fix NOT present"
+            echo "has_upstream_fix=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Check for the "fixed" markers that appear in upstream main:
+          # 1. .config-layout uses "height:" instead of "min-height:"
+          # 2. .config-main has "min-height: 0" and "overflow: hidden"
+          # 3. .config-sidebar has "min-height: 0" and "overflow: hidden"
+          
+          HAS_LAYOUT_HEIGHT=false
+          HAS_MAIN_MINHEIGHT=false
+          HAS_SIDEBAR_MINHEIGHT=false
+          
+          # Check for height: calc(100vh in .config-layout (not min-height)
+          if echo "$CONFIG_CSS" | grep -A5 '\.config-layout' | grep -q 'height:.*calc(100'; then
+            if ! echo "$CONFIG_CSS" | grep -A5 '\.config-layout' | grep -q 'min-height:.*calc(100'; then
+              HAS_LAYOUT_HEIGHT=true
+              echo "✅ .config-layout uses height (not min-height)"
+            fi
+          fi
+          
+          # Check for min-height: 0 in .config-main
+          if echo "$CONFIG_CSS" | grep -A10 '\.config-main' | grep -q 'min-height:.*0'; then
+            HAS_MAIN_MINHEIGHT=true
+            echo "✅ .config-main has min-height: 0"
+          fi
+          
+          # Check for min-height: 0 in .config-sidebar
+          if echo "$CONFIG_CSS" | grep -A10 '\.config-sidebar' | grep -q 'min-height:.*0'; then
+            HAS_SIDEBAR_MINHEIGHT=true
+            echo "✅ .config-sidebar has min-height: 0"
+          fi
+          
+          # If all markers are present, the fix is upstream
+          if [[ "$HAS_LAYOUT_HEIGHT" == "true" && "$HAS_MAIN_MINHEIGHT" == "true" && "$HAS_SIDEBAR_MINHEIGHT" == "true" ]]; then
+            echo ""
+            echo "🎉 Upstream $VERSION appears to include the scroll fix!"
+            echo "   The Umbrel UI override may no longer be necessary."
+            echo "   Consider building with UMBREL_UI_OVERRIDE=0 to test."
+            echo ""
+            echo "has_upstream_fix=true" >> $GITHUB_OUTPUT
+          else
+            echo ""
+            echo "⚠️ Upstream $VERSION does NOT include all scroll fix markers"
+            echo "   The Umbrel UI override is still needed."
+            echo ""
+            echo "has_upstream_fix=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Determine version to build
         id: check
@@ -58,10 +173,25 @@ jobs:
           INPUT_VERSION: ${{ github.event.inputs.clawdbot_version }}
           FORCE_BUILD: ${{ github.event.inputs.force_build }}
           LATEST_VERSION: ${{ steps.upstream.outputs.latest_version }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           # Use input version if provided, otherwise use latest
           VERSION="${INPUT_VERSION:-$LATEST_VERSION}"
+          
+          # Final validation: reject empty version
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Version is empty after all fallbacks. Cannot proceed."
+            exit 1
+          fi
+          
           echo "Building version: ${VERSION}"
+          
+          # For push events (Dockerfile/patches changed), always force rebuild
+          # This allows republishing the same version tag with updated overrides
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            echo "Push event detected - forcing rebuild to apply updated overrides"
+            FORCE_BUILD="true"
+          fi
           
           # Check if this version's image already exists in GHCR
           # Note: GITHUB_TOKEN is used directly (not base64 encoded) for Bearer auth
@@ -90,6 +220,7 @@ jobs:
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       version: ${{ needs.check-version.outputs.version }}
+      has_upstream_fix: ${{ needs.check-version.outputs.has_upstream_fix }}
     
     steps:
       - name: Check out repository
@@ -128,6 +259,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             CLAWDBOT_VERSION=${{ needs.check-version.outputs.version }}
+            UMBREL_UI_OVERRIDE=${{ github.event.inputs.umbrel_ui_override != 'false' && '1' || '0' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -147,16 +279,18 @@ jobs:
             exit 1
           fi
           
-          echo "Image digest validated: $DIGEST"
+          echo "✅ Image digest validated: $DIGEST"
           echo "Full image reference: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@$DIGEST"
 
   trigger-umbrel-update:
     needs: build
-    if: needs.build.result == 'success'
+    if: needs.build.result == 'success' && github.event.inputs.skip_umbrel_update != 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for repository_dispatch
     steps:
       - name: Trigger Umbrel app update
-        uses: peter-evans/repository-dispatch@v2
+        uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: new-image
@@ -166,3 +300,24 @@ jobs:
               "digest": "${{ needs.build.outputs.digest }}",
               "image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
             }
+      
+      - name: Summary
+        env:
+          HAS_UPSTREAM_FIX: ${{ needs.build.outputs.has_upstream_fix }}
+        run: |
+          echo "## 🚀 Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ needs.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Umbrel UI Override:** Applied" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "$HAS_UPSTREAM_FIX" == "true" ]]; then
+            echo "### ℹ️ Upstream Fix Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The upstream version appears to include the Config scroll fix." >> $GITHUB_STEP_SUMMARY
+            echo "Consider building with \`umbrel_ui_override=false\` to test if the override is still needed." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "Triggered Umbrel app update workflow." >> $GITHUB_STEP_SUMMARY

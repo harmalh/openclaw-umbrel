@@ -20,6 +20,9 @@ WORKDIR /app
 ARG CLAWDBOT_VERSION=main
 RUN git clone --depth 1 --branch ${CLAWDBOT_VERSION} https://github.com/clawdbot/clawdbot.git .
 
+# Copy Umbrel UI patches (applied after build if UMBREL_UI_OVERRIDE=1)
+COPY patches/ /tmp/patches/
+
 # Optional: Install additional apt packages for skills that need binaries
 ARG CLAWDBOT_DOCKER_APT_PACKAGES=""
 RUN if [ -n "$CLAWDBOT_DOCKER_APT_PACKAGES" ]; then \
@@ -39,6 +42,20 @@ RUN pnpm build
 ENV CLAWDBOT_PREFER_PNPM=1
 RUN pnpm ui:install
 RUN pnpm ui:build
+
+# Apply Umbrel UI overrides (fixes scroll and header issues in embedded context)
+# Set UMBREL_UI_OVERRIDE=0 to skip applying the override (for testing or when
+# upstream includes the fix)
+ARG UMBREL_UI_OVERRIDE=1
+RUN if [ "$UMBREL_UI_OVERRIDE" = "1" ] && [ -f /tmp/patches/umbrel-control-ui.css ]; then \
+      echo "[Dockerfile] Applying Umbrel UI override..." && \
+      cp /tmp/patches/umbrel-control-ui.css /app/dist/control-ui/umbrel-override.css && \
+      # Inject stylesheet link into index.html (before </head>)
+      sed -i 's|</head>|<link rel="stylesheet" href="./umbrel-override.css"></head>|' /app/dist/control-ui/index.html && \
+      echo "[Dockerfile] Umbrel UI override applied successfully"; \
+    else \
+      echo "[Dockerfile] Skipping Umbrel UI override (UMBREL_UI_OVERRIDE=$UMBREL_UI_OVERRIDE)"; \
+    fi
 
 # =============================================================================
 # Stage 2: Runtime
