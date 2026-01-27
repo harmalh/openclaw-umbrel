@@ -181,20 +181,50 @@ jobs:
             echo "is_update=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Find existing PR branch
+        id: existing_pr
+        env:
+          GH_TOKEN: ${{ secrets.UMBREL_APPS_PAT }}
+        run: |
+          # Check if there's an existing open PR for clawdbot from our fork
+          # This ensures we always update the same PR until it's merged
+          EXISTING_PR=$(gh pr list --repo ${{ env.UMBREL_APPS_REPO }} \
+            --author "${{ github.repository_owner }}" \
+            --state open \
+            --json number,headRefName,title \
+            --jq '.[] | select(.title | test("clawdbot"; "i"))' 2>/dev/null | head -1 || echo "")
+          
+          if [[ -n "$EXISTING_PR" && "$EXISTING_PR" != "null" ]]; then
+            EXISTING_BRANCH=$(echo "$EXISTING_PR" | jq -r '.headRefName')
+            EXISTING_PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
+            echo "Found existing open PR #${EXISTING_PR_NUM} using branch: $EXISTING_BRANCH"
+            echo "branch=$EXISTING_BRANCH" >> $GITHUB_OUTPUT
+            echo "pr_number=$EXISTING_PR_NUM" >> $GITHUB_OUTPUT
+          else
+            echo "No existing open PR found"
+            echo "branch=" >> $GITHUB_OUTPUT
+            echo "pr_number=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create or update branch
         id: branch
         working-directory: umbrel-apps
         run: |
           VERSION="${{ steps.payload.outputs.version }}"
           IS_UPDATE="${{ steps.check_upstream.outputs.is_update }}"
+          EXISTING_BRANCH="${{ steps.existing_pr.outputs.branch }}"
           
-          # Determine branch name based on submission status
-          if [[ "$IS_UPDATE" == "true" ]]; then
+          # Priority: 1) Reuse existing PR branch, 2) Version-specific for updates, 3) Fixed for new
+          if [[ -n "$EXISTING_BRANCH" ]]; then
+            # Reuse the branch from existing open PR
+            BRANCH="$EXISTING_BRANCH"
+            echo "Reusing existing PR branch: $BRANCH"
+          elif [[ "$IS_UPDATE" == "true" ]]; then
             # App already exists upstream - use version-specific branch for update PRs
             BRANCH="update-clawdbot-${VERSION}"
             echo "Using version-specific branch for update: $BRANCH"
           else
-            # New submission - use fixed branch so all updates go to same PR until merged
+            # New submission with no existing PR - use fixed branch
             BRANCH="add-clawdbot"
             echo "Using fixed branch for new submission: $BRANCH"
           fi
@@ -379,53 +409,87 @@ jobs:
           VERSION="${{ steps.payload.outputs.version }}"
           DIGEST="${{ steps.payload.outputs.digest }}"
           BRANCH="${{ steps.branch.outputs.branch }}"
+          IS_UPDATE="${{ steps.check_upstream.outputs.is_update }}"
+          EXISTING_PR_NUM="${{ steps.existing_pr.outputs.pr_number }}"
           
-          # Check if PR already exists
-          EXISTING_PR=$(gh pr list --repo ${{ env.UMBREL_APPS_REPO }} \
-            --head "${{ github.repository_owner }}:${BRANCH}" \
-            --json number,url --jq '.[0]' 2>/dev/null || echo "")
-          
-          if [[ -n "$EXISTING_PR" && "$EXISTING_PR" != "null" ]]; then
-            PR_NUMBER=$(echo "$EXISTING_PR" | jq -r '.number')
-            PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
-            echo "PR #${PR_NUMBER} already exists: $PR_URL"
-            echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
-            echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
-          else
-            # Build release notes section
-            RELEASE_SECTION=""
-            if [[ -n "$RELEASE_URL" && "$RELEASE_URL" != "null" ]]; then
-              RELEASE_SECTION="## Upstream Release Notes ([${VERSION}](${RELEASE_URL}))
+          # Build release notes section
+          RELEASE_SECTION=""
+          if [[ -n "$RELEASE_URL" && "$RELEASE_URL" != "null" ]]; then
+            RELEASE_SECTION="## Upstream Release Notes ([${VERSION}](${RELEASE_URL}))
 
           ${RELEASE_NOTES}
 
           "
-            fi
-            
-            # Create PR with upstream release notes
-            PR_URL=$(gh pr create \
-              --repo ${{ env.UMBREL_APPS_REPO }} \
-              --head "${{ github.repository_owner }}:${BRANCH}" \
-              --base master \
-              --title "Update Clawdbot to ${VERSION}" \
-              --body "## Summary
+          fi
+          
+          # Determine PR title based on whether this is a new submission or update
+          if [[ "$IS_UPDATE" == "true" ]]; then
+            PR_TITLE="Update Clawdbot to ${VERSION}"
+          else
+            PR_TITLE="App Submission: Clawdbot"
+          fi
+          
+          # Build PR body
+          PR_BODY="## Summary
 
-          This PR updates the Clawdbot app to version ${VERSION}.
+          This PR adds the Clawdbot app to the Umbrel App Store (version ${VERSION}).
 
           ${RELEASE_SECTION}## Changes
 
-          - Updated Docker image to \`${VERSION}\` with digest pinning
-          - Updated app version in umbrel-app.yml
+          - Docker image: \`ghcr.io/harmalh/clawdbot-umbrel:${VERSION}\`
           - Image digest: \`${DIGEST}\`
+          - Multi-arch build: linux/amd64 + linux/arm64
 
           ---
 
-          *Automated PR from [clawdbot-umbrel](https://github.com/${{ github.repository }})*")
+          *Automated PR from [clawdbot-umbrel](https://github.com/${{ github.repository }})*"
+          
+          # Check if PR already exists (either from earlier step or by branch check)
+          if [[ -n "$EXISTING_PR_NUM" ]]; then
+            # Update existing PR title and body
+            echo "Updating existing PR #${EXISTING_PR_NUM}..."
+            gh pr edit "$EXISTING_PR_NUM" \
+              --repo ${{ env.UMBREL_APPS_REPO }} \
+              --title "$PR_TITLE" \
+              --body "$PR_BODY" || echo "::warning::Could not update PR title/body"
             
-            PR_NUMBER=$(gh pr view --repo ${{ env.UMBREL_APPS_REPO }} "$PR_URL" --json number --jq '.number')
-            echo "Created PR #${PR_NUMBER}: $PR_URL"
-            echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+            PR_URL="https://github.com/${{ env.UMBREL_APPS_REPO }}/pull/${EXISTING_PR_NUM}"
+            echo "Updated PR #${EXISTING_PR_NUM}: $PR_URL"
+            echo "pr_number=${EXISTING_PR_NUM}" >> $GITHUB_OUTPUT
             echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+          else
+            # Check if PR exists by branch (fallback)
+            EXISTING_PR=$(gh pr list --repo ${{ env.UMBREL_APPS_REPO }} \
+              --head "${{ github.repository_owner }}:${BRANCH}" \
+              --json number,url --jq '.[0]' 2>/dev/null || echo "")
+            
+            if [[ -n "$EXISTING_PR" && "$EXISTING_PR" != "null" ]]; then
+              PR_NUMBER=$(echo "$EXISTING_PR" | jq -r '.number')
+              PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
+              
+              # Update existing PR
+              gh pr edit "$PR_NUMBER" \
+                --repo ${{ env.UMBREL_APPS_REPO }} \
+                --title "$PR_TITLE" \
+                --body "$PR_BODY" || echo "::warning::Could not update PR title/body"
+              
+              echo "Updated existing PR #${PR_NUMBER}: $PR_URL"
+              echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+              echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+            else
+              # Create new PR
+              PR_URL=$(gh pr create \
+                --repo ${{ env.UMBREL_APPS_REPO }} \
+                --head "${{ github.repository_owner }}:${BRANCH}" \
+                --base master \
+                --title "$PR_TITLE" \
+                --body "$PR_BODY")
+              
+              PR_NUMBER=$(gh pr view --repo ${{ env.UMBREL_APPS_REPO }} "$PR_URL" --json number --jq '.number')
+              echo "Created PR #${PR_NUMBER}: $PR_URL"
+              echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+              echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+            fi
           fi
 
   wait-for-checks:

@@ -67,6 +67,8 @@ jobs:
 
       - name: Get latest Clawdbot release
         id: upstream
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           # Get latest release from Clawdbot repo with proper error handling
           echo "Fetching latest release from Clawdbot repository..."
@@ -76,8 +78,15 @@ jobs:
           RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
           
           if [[ "$HTTP_CODE" != "200" ]]; then
-            echo "::warning::GitHub API returned HTTP $HTTP_CODE. Falling back to 'main' branch."
+            echo "::warning::GitHub API returned HTTP $HTTP_CODE"
             echo "Response: $RESPONSE_BODY"
+            # For push events, we need a proper version - fail instead of using main
+            if [[ "$EVENT_NAME" == "push" ]]; then
+              echo "::error::Cannot determine upstream version for auto-rebuild. Skipping build."
+              echo "latest_version=" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "Falling back to 'main' branch for manual trigger."
             echo "latest_version=main" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -86,7 +95,13 @@ jobs:
           
           # Validate tag format (must be non-empty and start with 'v' for releases)
           if [[ -z "$LATEST" ]]; then
-            echo "::warning::No tag_name found in release response. Falling back to 'main' branch."
+            echo "::warning::No tag_name found in release response."
+            if [[ "$EVENT_NAME" == "push" ]]; then
+              echo "::error::Cannot determine upstream version for auto-rebuild. Skipping build."
+              echo "latest_version=" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "Falling back to 'main' branch for manual trigger."
             echo "latest_version=main" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -179,8 +194,10 @@ jobs:
           
           # Final validation: reject empty version
           if [[ -z "$VERSION" ]]; then
-            echo "::error::Version is empty after all fallbacks. Cannot proceed."
-            exit 1
+            echo "::warning::Version is empty - skipping build."
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "version=" >> $GITHUB_OUTPUT
+            exit 0
           fi
           
           echo "Building version: ${VERSION}"
@@ -290,7 +307,11 @@ jobs:
 
   trigger-umbrel-update:
     needs: build
-    if: needs.build.result == 'success' && github.event.inputs.skip_umbrel_update != 'true'
+    # Skip Umbrel update if: manually skipped, build failed, or version is "main" (not a proper release)
+    if: |
+      needs.build.result == 'success' && 
+      github.event.inputs.skip_umbrel_update != 'true' &&
+      needs.build.outputs.version != 'main'
     runs-on: ubuntu-latest
     permissions:
       contents: write  # Required for repository_dispatch
