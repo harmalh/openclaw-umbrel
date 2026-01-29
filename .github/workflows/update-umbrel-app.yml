@@ -1,21 +1,30 @@
 # Update Umbrel App
 # =================
-# This workflow updates the Umbrel app definition when a new image is built.
-# It:
+# This workflow updates the Umbrel app definition (PR #4557) when a new release
+# image is ready and you've confirmed it locally.
+#
+# SAFETY: This workflow only runs when EXPLICITLY requested:
+# - Via repository_dispatch from build-image.yml (only in release mode with
+#   update_umbrel_store=true)
+# - Via manual workflow_dispatch with required inputs
+#
+# It does NOT run automatically on push or schedule.
+#
+# What it does:
 # - Syncs fork with upstream getumbrel/umbrel-apps
 # - Updates ONLY safe fields (image, version, releaseNotes)
 # - Runs umbrel-cli lint before committing
-# - Opens/updates a PR to the upstream repository
+# - Opens/updates PR #4557 to the upstream repository
 # - Waits for the Lint apps check to pass
 
 name: Update Umbrel App
 
 on:
-  # Triggered by build-image workflow
+  # Triggered by build-image workflow (only when update_umbrel_store=true in release mode)
   repository_dispatch:
     types: [new-image]
   
-  # Manual trigger
+  # Manual trigger (requires explicit version and digest)
   workflow_dispatch:
     inputs:
       version:
@@ -74,10 +83,10 @@ jobs:
         run: |
           VERSION="${{ steps.payload.outputs.version }}"
           
-          echo "Fetching release notes for $VERSION from upstream Clawdbot..."
+          echo "Fetching release notes for $VERSION from upstream Moltbot..."
           
-          # Fetch release info from GitHub API
-          RELEASE_JSON=$(curl -s "https://api.github.com/repos/clawdbot/clawdbot/releases/tags/${VERSION}" || echo "{}")
+          # Fetch release info from GitHub API (moltbot/moltbot is the canonical repo)
+          RELEASE_JSON=$(curl -s "https://api.github.com/repos/moltbot/moltbot/releases/tags/${VERSION}" || echo "{}")
           
           # Extract release body (the release notes)
           RELEASE_BODY=$(echo "$RELEASE_JSON" | jq -r '.body // empty' | head -100)

@@ -1,13 +1,20 @@
 # Build and Push Clawdbot Umbrel Image
 # =====================================
-# This workflow builds a multi-arch Docker image when:
-# - Manually triggered via workflow_dispatch
-# - Changes pushed to Dockerfile or UI override patches (auto-rebuild)
+# This workflow builds a multi-arch Docker image.
+#
+# Build modes:
+# - candidate (default): Pushes image as candidate-{version} for local testing.
+#                        No CSS override, no Umbrel App Store interaction.
+# - release: Pushes image as {version} + latest. Optionally triggers Umbrel update.
+#
+# Triggers:
+# - Manual via workflow_dispatch (recommended)
+# - Push to Dockerfile/patches (candidate mode only, no auto App Store update)
 
 name: Build and Push Image
 
 on:
-  # Auto-rebuild when UI override or Dockerfile changes
+  # Auto-rebuild when UI override or Dockerfile changes (candidate mode only)
   push:
     branches: [main]
     paths:
@@ -15,27 +22,35 @@ on:
       - 'patches/**'
       - 'entrypoint.sh'
   
-  # Manual trigger with optional version override
+  # Manual trigger with full control
   workflow_dispatch:
     inputs:
       clawdbot_version:
-        description: 'Clawdbot version to build (e.g., v1.0.0 or main)'
+        description: 'Version to build (e.g., v2026.1.24 or main). Leave empty for latest release.'
         required: false
         default: ''
+      publish_mode:
+        description: 'Build mode: candidate (for local testing) or release (for App Store)'
+        required: true
+        default: 'candidate'
+        type: choice
+        options:
+          - candidate
+          - release
       force_build:
-        description: 'Force build even if version already exists'
-        required: false
-        default: false
-        type: boolean
-      skip_umbrel_update:
-        description: 'Skip triggering Umbrel app update workflow'
+        description: 'Force build even if image tag already exists'
         required: false
         default: false
         type: boolean
       umbrel_ui_override:
-        description: 'Apply Umbrel UI override CSS (fixes scroll/header issues)'
+        description: 'Apply Umbrel UI override CSS (usually not needed for testing)'
         required: false
-        default: true
+        default: false
+        type: boolean
+      update_umbrel_store:
+        description: 'Trigger Umbrel App Store PR update (release mode only)'
+        required: false
+        default: false
         type: boolean
       run_ui_tests:
         description: 'Run UI regression tests after build'
@@ -60,20 +75,33 @@ jobs:
     outputs:
       should_build: ${{ steps.check.outputs.should_build }}
       version: ${{ steps.check.outputs.version }}
+      publish_mode: ${{ steps.mode.outputs.publish_mode }}
       has_upstream_fix: ${{ steps.check_ui_fix.outputs.has_upstream_fix }}
     steps:
+      - name: Determine publish mode
+        id: mode
+        run: |
+          # Push events always use candidate mode (safe default)
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "Push event detected - using candidate mode (no App Store interaction)"
+            echo "publish_mode=candidate" >> $GITHUB_OUTPUT
+          else
+            MODE="${{ github.event.inputs.publish_mode }}"
+            echo "Manual trigger - using ${MODE:-candidate} mode"
+            echo "publish_mode=${MODE:-candidate}" >> $GITHUB_OUTPUT
+          fi
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Get latest Clawdbot release
+      - name: Get latest Moltbot release
         id: upstream
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          # Get latest release from Clawdbot repo with proper error handling
-          echo "Fetching latest release from Clawdbot repository..."
+          # Get latest release from Moltbot repo (canonical upstream) with proper error handling
+          echo "Fetching latest release from Moltbot repository..."
           
-          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" https://api.github.com/repos/clawdbot/clawdbot/releases/latest)
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" https://api.github.com/repos/moltbot/moltbot/releases/latest)
           HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
           RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
           
@@ -126,7 +154,7 @@ jobs:
           echo "Checking if $VERSION includes the Config scroll fix..."
           
           # Fetch the config.css from upstream for this version
-          CONFIG_CSS_URL="https://raw.githubusercontent.com/clawdbot/clawdbot/${VERSION}/ui/src/styles/config.css"
+          CONFIG_CSS_URL="https://raw.githubusercontent.com/moltbot/moltbot/${VERSION}/ui/src/styles/config.css"
           
           CONFIG_CSS=$(curl -sf "$CONFIG_CSS_URL" 2>/dev/null || echo "")
           
@@ -236,7 +264,9 @@ jobs:
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       version: ${{ needs.check-version.outputs.version }}
+      publish_mode: ${{ needs.check-version.outputs.publish_mode }}
       has_upstream_fix: ${{ needs.check-version.outputs.has_upstream_fix }}
+      image_tag: ${{ steps.tags.outputs.primary_tag }}
     
     steps:
       - name: Check out repository
@@ -255,14 +285,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=${{ needs.check-version.outputs.version }}
-            type=raw,value=latest
+      - name: Determine image tags
+        id: tags
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+          PUBLISH_MODE: ${{ needs.check-version.outputs.publish_mode }}
+        run: |
+          if [[ "$PUBLISH_MODE" == "release" ]]; then
+            # Release mode: version tag + latest
+            echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_OUTPUT
+            echo "primary_tag=${VERSION}" >> $GITHUB_OUTPUT
+            echo "📦 Release mode: tagging as ${VERSION} and latest"
+          else
+            # Candidate mode: candidate-version tag only (no latest)
+            echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:candidate-${VERSION}" >> $GITHUB_OUTPUT
+            echo "primary_tag=candidate-${VERSION}" >> $GITHUB_OUTPUT
+            echo "🧪 Candidate mode: tagging as candidate-${VERSION} (no latest)"
+          fi
 
       - name: Build and push
         id: build
@@ -271,11 +310,10 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.tags }}
           build-args: |
             CLAWDBOT_VERSION=${{ needs.check-version.outputs.version }}
-            UMBREL_UI_OVERRIDE=${{ github.event.inputs.umbrel_ui_override != 'false' && '1' || '0' }}
+            UMBREL_UI_OVERRIDE=${{ github.event.inputs.umbrel_ui_override == 'true' && '1' || '0' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -305,12 +343,72 @@ jobs:
     with:
       image: ghcr.io/${{ github.repository_owner }}/clawdbot-umbrel:${{ needs.build.outputs.version }}
 
+  # Build summary (always runs after successful build)
+  summary:
+    needs: build
+    if: needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build Summary
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          PUBLISH_MODE: ${{ needs.build.outputs.publish_mode }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          HAS_UPSTREAM_FIX: ${{ needs.build.outputs.has_upstream_fix }}
+          UI_OVERRIDE: ${{ github.event.inputs.umbrel_ui_override }}
+        run: |
+          echo "## 🚀 Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** ${PUBLISH_MODE}" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${DIGEST}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**UI Override:** ${UI_OVERRIDE:-false}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Full image reference for easy copy/paste
+          echo "### 📋 Image Reference (for local testing)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "ghcr.io/${{ github.repository_owner }}/clawdbot-umbrel:${IMAGE_TAG}@${DIGEST}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "$PUBLISH_MODE" == "candidate" ]]; then
+            echo "### 🧪 Candidate Build" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "This is a **candidate** build for local testing." >> $GITHUB_STEP_SUMMARY
+            echo "No Umbrel App Store interaction will occur." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To test on your Umbrel:" >> $GITHUB_STEP_SUMMARY
+            echo "1. SSH into your Umbrel" >> $GITHUB_STEP_SUMMARY
+            echo "2. Edit \`~/umbrel/app-data/clawdbot/docker-compose.yml\`" >> $GITHUB_STEP_SUMMARY
+            echo "3. Update the \`image:\` line to the reference above" >> $GITHUB_STEP_SUMMARY
+            echo "4. Run: \`umbreld client apps.restart.mutate --appId clawdbot\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [[ "$HAS_UPSTREAM_FIX" == "true" ]]; then
+            echo "### ℹ️ Upstream Fix Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The upstream version appears to include the Config scroll fix." >> $GITHUB_STEP_SUMMARY
+            echo "The UI override is likely not needed." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # Umbrel App Store update (ONLY runs when explicitly requested in release mode)
   trigger-umbrel-update:
     needs: build
-    # Skip Umbrel update if: manually skipped, build failed, or version is "main" (not a proper release)
+    # STRICT: Only trigger when ALL conditions are met:
+    # 1. Build succeeded
+    # 2. Release mode (not candidate)
+    # 3. Explicit opt-in via update_umbrel_store=true
+    # 4. Not a "main" branch build (must be a proper version)
     if: |
       needs.build.result == 'success' && 
-      github.event.inputs.skip_umbrel_update != 'true' &&
+      needs.build.outputs.publish_mode == 'release' &&
+      github.event.inputs.update_umbrel_store == 'true' &&
       needs.build.outputs.version != 'main'
     runs-on: ubuntu-latest
     permissions:
@@ -328,23 +426,9 @@ jobs:
               "image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
             }
       
-      - name: Summary
-        env:
-          HAS_UPSTREAM_FIX: ${{ needs.build.outputs.has_upstream_fix }}
+      - name: Update Summary
         run: |
-          echo "## 🚀 Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "### 📤 Umbrel App Store Update Triggered" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Digest:** \`${{ needs.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Umbrel UI Override:** Applied" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [[ "$HAS_UPSTREAM_FIX" == "true" ]]; then
-            echo "### ℹ️ Upstream Fix Detected" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The upstream version appears to include the Config scroll fix." >> $GITHUB_STEP_SUMMARY
-            echo "Consider building with \`umbrel_ui_override=false\` to test if the override is still needed." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "Triggered Umbrel app update workflow." >> $GITHUB_STEP_SUMMARY
+          echo "The \`update-umbrel-app\` workflow has been triggered." >> $GITHUB_STEP_SUMMARY
+          echo "This will update PR #4557 with the new image." >> $GITHUB_STEP_SUMMARY
