@@ -83,10 +83,10 @@ jobs:
         run: |
           VERSION="${{ steps.payload.outputs.version }}"
           
-          echo "Fetching release notes for $VERSION from upstream Moltbot..."
+          echo "Fetching release notes for $VERSION from upstream OpenClaw..."
           
-          # Fetch release info from GitHub API (moltbot/moltbot is the canonical repo)
-          RELEASE_JSON=$(curl -s "https://api.github.com/repos/moltbot/moltbot/releases/tags/${VERSION}" || echo "{}")
+          # Fetch release info from GitHub API (openclaw/openclaw is the canonical repo)
+          RELEASE_JSON=$(curl -s "https://api.github.com/repos/openclaw/openclaw/releases/tags/${VERSION}" || echo "{}")
           
           # Extract release body (the release notes)
           RELEASE_BODY=$(echo "$RELEASE_JSON" | jq -r '.body // empty' | head -100)

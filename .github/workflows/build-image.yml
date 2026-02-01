@@ -93,15 +93,15 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Get latest Moltbot release
+      - name: Get latest OpenClaw release
         id: upstream
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          # Get latest release from Moltbot repo (canonical upstream) with proper error handling
-          echo "Fetching latest release from Moltbot repository..."
+          # Get latest release from OpenClaw repo (canonical upstream) with proper error handling
+          echo "Fetching latest release from OpenClaw repository..."
           
-          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" https://api.github.com/repos/moltbot/moltbot/releases/latest)
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" https://api.github.com/repos/openclaw/openclaw/releases/latest)
           HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
           RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
           
@@ -154,7 +154,7 @@ jobs:
           echo "Checking if $VERSION includes the Config scroll fix..."
           
           # Fetch the config.css from upstream for this version
-          CONFIG_CSS_URL="https://raw.githubusercontent.com/moltbot/moltbot/${VERSION}/ui/src/styles/config.css"
+          CONFIG_CSS_URL="https://raw.githubusercontent.com/openclaw/openclaw/${VERSION}/ui/src/styles/config.css"
           
           CONFIG_CSS=$(curl -sf "$CONFIG_CSS_URL" 2>/dev/null || echo "")
           

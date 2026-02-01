@@ -16,10 +16,10 @@ RUN corepack enable
 
 WORKDIR /app
 
-# Clone Moltbot source (pinned to a specific version for reproducibility)
-# Note: moltbot/moltbot is the canonical upstream repo (clawdbot/clawdbot redirects here)
+# Clone OpenClaw source (pinned to a specific version for reproducibility)
+# Note: openclaw/openclaw is the canonical upstream repo (formerly moltbot/moltbot)
 ARG CLAWDBOT_VERSION=main
-RUN git clone --depth 1 --branch ${CLAWDBOT_VERSION} https://github.com/moltbot/moltbot.git .
+RUN git clone --depth 1 --branch ${CLAWDBOT_VERSION} https://github.com/openclaw/openclaw.git .
 
 # Copy Umbrel UI patches (applied after build if UMBREL_UI_OVERRIDE=1)
 COPY patches/ /tmp/patches/
