@@ -137,6 +137,73 @@ rsync -av umbrel-app/clawdbot/ umbrel@umbrel.local:/home/umbrel/umbrel/app-data/
 
 # 3. Install via Umbrel CLI
 ssh umbrel@umbrel.local "umbreld client apps.install.mutate --appId clawdbot"
+
+# 4. Open from Umbrel Web UI (not direct URL!)
+# Go to http://umbrel.local → click Clawdbot → enter your Umbrel app password as token
+```
+
+---
+
+## Fresh Install Testing (Web UI)
+
+To test like a real App Store user would experience (catches first-run bugs):
+
+### 1. Backup Your Data (Optional but Recommended)
+
+Before wiping, save your existing config, workspace, and sessions:
+
+```bash
+# SSH into Umbrel
+ssh umbrel@umbrel.local
+
+# Create timestamped backup
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+tar -czvf ~/clawdbot-backup-${TIMESTAMP}.tar.gz -C ~/umbrel/app-data/clawdbot data/
+
+# Download to your PC (run from your local machine)
+scp umbrel@umbrel.local:~/clawdbot-backup-*.tar.gz ./
+```
+
+### 2. Uninstall and Wipe Data
+
+```bash
+# Uninstall the app
+umbreld client apps.uninstall.mutate --appId clawdbot
+
+# Wipe persistent data for a truly fresh start
+sudo rm -rf ~/umbrel/app-data/clawdbot/data
+```
+
+### 3. Update Image and Reinstall
+
+```bash
+# Update the image reference (replace IMAGE_REF with the actual reference)
+sed -i 's|image:.*|image: IMAGE_REF|' ~/umbrel/app-data/clawdbot/docker-compose.yml
+
+# Reinstall (creates fresh data directory)
+umbreld client apps.install.mutate --appId clawdbot
+```
+
+### 4. Verify from Umbrel Web UI
+
+1. Open the **Umbrel Web UI** at http://umbrel.local
+2. Navigate to the **Clawdbot** app and click to open
+3. When prompted, enter your **Umbrel app password** as the token (see [Token Copy Flow](#10-token-copy-flow))
+4. Configure an LLM backend (e.g., Anthropic, OpenAI, or local Ollama)
+5. Send a test chat message
+6. Confirm no "Missing workspace template" errors occur
+
+### 5. Restore Backup (If Needed)
+
+```bash
+# Stop the app
+umbreld client apps.stop.mutate --appId clawdbot
+
+# Extract backup (replace TIMESTAMP with your backup filename)
+tar -xzvf ~/clawdbot-backup-TIMESTAMP.tar.gz -C ~/umbrel/app-data/clawdbot/
+
+# Restart the app
+umbreld client apps.start.mutate --appId clawdbot
 ```
 
 ---
@@ -220,14 +287,19 @@ image: ghcr.io/<owner>/clawdbot-umbrel:v1.0.0@sha256:abc123...
 
 ### 10. Token Copy Flow
 
-**Problem**: Users don't know how to authenticate with the Control UI.
+**Problem**: Users don't know how to authenticate with the Control UI on first run.
+
+**Important**: On first run, when you open Clawdbot from the Umbrel Web UI, the Control UI will prompt for a token. This is a one-time setup step.
 
 **Flow**:
-1. Install Clawdbot from Umbrel
-2. Open the app (redirects to Control UI)
-3. Find the app password in Umbrel UI (click the app, look for credentials)
-4. Paste the password as the token in Control UI's login prompt
-5. Control UI stores the token in browser localStorage
+1. Install Clawdbot from Umbrel App Store (or manually)
+2. Open the app **from the Umbrel Web UI** (not via direct URL)
+3. The Control UI will show a token prompt
+4. Find the app password in Umbrel UI: click the Clawdbot app card, look for "Default Password" or credentials
+5. Paste the password as the token in Control UI's login prompt
+6. Control UI stores the token in browser localStorage for future visits
+
+**Note**: The token is set to `${APP_PASSWORD}` (Umbrel's app password) via the `CLAWDBOT_GATEWAY_TOKEN` environment variable. You only need to enter it once per browser.
 
 ---
 

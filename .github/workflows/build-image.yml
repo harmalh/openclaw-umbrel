@@ -381,11 +381,71 @@ jobs:
             echo "This is a **candidate** build for local testing." >> $GITHUB_STEP_SUMMARY
             echo "No Umbrel App Store interaction will occur." >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "To test on your Umbrel:" >> $GITHUB_STEP_SUMMARY
-            echo "1. SSH into your Umbrel" >> $GITHUB_STEP_SUMMARY
-            echo "2. Edit \`~/umbrel/app-data/clawdbot/docker-compose.yml\`" >> $GITHUB_STEP_SUMMARY
-            echo "3. Update the \`image:\` line to the reference above" >> $GITHUB_STEP_SUMMARY
-            echo "4. Run: \`umbreld client apps.restart.mutate --appId clawdbot\`" >> $GITHUB_STEP_SUMMARY
+            
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📦 Fresh Install Test Runbook (Web UI)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "For a store-like test that catches first-run issues:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### 1. Backup existing data (optional, recommended)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "# SSH into Umbrel and create backup" >> $GITHUB_STEP_SUMMARY
+            echo "ssh umbrel@umbrel.local" >> $GITHUB_STEP_SUMMARY
+            echo "TIMESTAMP=\$(date +%Y%m%d-%H%M%S)" >> $GITHUB_STEP_SUMMARY
+            echo "tar -czvf ~/clawdbot-backup-\${TIMESTAMP}.tar.gz -C ~/umbrel/app-data/clawdbot data/" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Download to your PC (run from your local machine)" >> $GITHUB_STEP_SUMMARY
+            echo "scp umbrel@umbrel.local:~/clawdbot-backup-*.tar.gz ./" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### 2. Uninstall and wipe data" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "# Uninstall the app" >> $GITHUB_STEP_SUMMARY
+            echo "umbreld client apps.uninstall.mutate --appId clawdbot" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Wipe persistent data for a truly fresh start" >> $GITHUB_STEP_SUMMARY
+            echo "sudo rm -rf ~/umbrel/app-data/clawdbot/data" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### 3. Update app definition and reinstall" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "# Update the image reference in the app definition" >> $GITHUB_STEP_SUMMARY
+            echo "sed -i 's|image:.*|image: ghcr.io/${{ github.repository_owner }}/clawdbot-umbrel:${IMAGE_TAG}@${DIGEST}|' \\\\" >> $GITHUB_STEP_SUMMARY
+            echo "  ~/umbrel/app-data/clawdbot/docker-compose.yml" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Reinstall (creates fresh data directory)" >> $GITHUB_STEP_SUMMARY
+            echo "umbreld client apps.install.mutate --appId clawdbot" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### 4. Verify from Umbrel Web UI" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "1. Open the **Umbrel Web UI** at http://umbrel.local" >> $GITHUB_STEP_SUMMARY
+            echo "2. Navigate to the **Clawdbot** app and click to open" >> $GITHUB_STEP_SUMMARY
+            echo "3. When prompted, enter your **Umbrel app password** as the token" >> $GITHUB_STEP_SUMMARY
+            echo "4. Verify: Configure an LLM backend and send a test chat message" >> $GITHUB_STEP_SUMMARY
+            echo "5. Confirm no 'Missing workspace template' errors occur" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### 5. Restore backup (if needed)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "# Stop the app first" >> $GITHUB_STEP_SUMMARY
+            echo "umbreld client apps.stop.mutate --appId clawdbot" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Extract backup (replace TIMESTAMP with your backup date)" >> $GITHUB_STEP_SUMMARY
+            echo "tar -xzvf ~/clawdbot-backup-TIMESTAMP.tar.gz -C ~/umbrel/app-data/clawdbot/" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Restart the app" >> $GITHUB_STEP_SUMMARY
+            echo "umbreld client apps.start.mutate --appId clawdbot" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           

@@ -86,6 +86,23 @@ COPY --from=builder --chown=node:node /app/package.json ./package.json
 # Copy bundled extensions (required for memory-core plugin validation)
 COPY --from=builder --chown=node:node /app/extensions ./extensions
 
+# Copy upstream runtime resources (templates, skills, assets)
+# These are NOT compiled into dist/ but are required at runtime:
+# - docs/reference/templates/AGENTS.md and other workspace templates
+# - skills/ for skill discovery and metadata
+# - assets/ for UI/runtime references
+COPY --from=builder --chown=node:node /app/docs ./docs
+COPY --from=builder --chown=node:node /app/skills ./skills
+COPY --from=builder --chown=node:node /app/assets ./assets
+
+# Build-time guardrails: fail fast if upstream layout changes
+RUN test -f /app/docs/reference/templates/AGENTS.md || \
+      (echo "ERROR: Missing required template docs/reference/templates/AGENTS.md" && exit 1)
+RUN test -d /app/skills || \
+      (echo "ERROR: Missing required directory skills/" && exit 1)
+RUN test -d /app/assets || \
+      (echo "ERROR: Missing required directory assets/" && exit 1)
+
 # Copy entrypoint script and convert line endings (in case of Windows CRLF)
 COPY --chown=node:node entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
