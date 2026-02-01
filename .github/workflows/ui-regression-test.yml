@@ -1,6 +1,6 @@
 # UI Regression Test
 # ==================
-# This workflow runs Playwright tests to verify the Clawdbot Control UI
+# This workflow runs Playwright tests to verify the OpenClaw Control UI
 # works correctly in the Umbrel context (scroll, header visibility, etc.)
 #
 # Trigger manually to test a specific image, or use as a scheduled check.
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       image:
-        description: 'Full image reference (e.g., ghcr.io/harmalh/clawdbot-umbrel:v2026.1.24)'
+        description: 'Full image reference (e.g., ghcr.io/harmalh/openclaw-umbrel:v2026.1.24)'
         required: true
       test_without_override:
         description: 'Also test an image built without the UI override'
@@ -49,7 +49,7 @@ jobs:
           # Install both Chromium and Firefox for cross-browser testing
           npx playwright install chromium firefox --with-deps
 
-      - name: Pull and start Clawdbot container
+      - name: Pull and start OpenClaw container
         env:
           IMAGE: ${{ inputs.image || github.event.inputs.image }}
         run: |
@@ -63,17 +63,17 @@ jobs:
           
           # Start the container
           docker run -d \
-            --name clawdbot-test \
+            --name openclaw-test \
             -p 18789:18789 \
             -v "$(pwd)/test-data:/data" \
             -e CLAWDBOT_GATEWAY_TOKEN=test-token \
             "$IMAGE"
           
           # Wait for container to be healthy
-          echo "Waiting for Clawdbot to start..."
+          echo "Waiting for OpenClaw to start..."
           for i in {1..30}; do
             if curl -sf http://localhost:18789/health > /dev/null 2>&1; then
-              echo "✅ Clawdbot is ready!"
+              echo "✅ OpenClaw is ready!"
               break
             fi
             echo "  Waiting... ($i/30)"
@@ -82,8 +82,8 @@ jobs:
           
           # Final health check
           curl -sf http://localhost:18789/health || {
-            echo "::error::Clawdbot failed to start"
-            docker logs clawdbot-test
+            echo "::error::OpenClaw failed to start"
+            docker logs openclaw-test
             exit 1
           }
 
@@ -92,7 +92,7 @@ jobs:
           cat > ui-test.spec.js << 'EOF'
           const { test, expect } = require('@playwright/test');
 
-          test.describe('Clawdbot Control UI', () => {
+          test.describe('OpenClaw Control UI', () => {
             test.beforeEach(async ({ page }) => {
               // Navigate to the Control UI with token
               await page.goto('http://localhost:18789/?token=test-token');
@@ -232,8 +232,8 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker stop clawdbot-test || true
-          docker rm clawdbot-test || true
+          docker stop openclaw-test || true
+          docker rm openclaw-test || true
 
       - name: Upload test results
         uses: actions/upload-artifact@v4

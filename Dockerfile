@@ -1,6 +1,6 @@
-# Clawdbot Umbrel Image
-# Multi-arch (linux/arm64, linux/amd64) Docker image for running Clawdbot on Umbrel
-# Based on upstream Clawdbot Dockerfile with Umbrel-specific adaptations
+# OpenClaw Umbrel Image
+# Multi-arch (linux/arm64, linux/amd64) Docker image for running OpenClaw on Umbrel
+# Based on upstream OpenClaw Dockerfile with Umbrel-specific adaptations
 
 # =============================================================================
 # Stage 1: Build
@@ -17,18 +17,18 @@ RUN corepack enable
 WORKDIR /app
 
 # Clone OpenClaw source (pinned to a specific version for reproducibility)
-# Note: openclaw/openclaw is the canonical upstream repo (formerly moltbot/moltbot)
-ARG CLAWDBOT_VERSION=main
-RUN git clone --depth 1 --branch ${CLAWDBOT_VERSION} https://github.com/openclaw/openclaw.git .
+# Note: openclaw/openclaw is the canonical upstream repo (formerly moltbot/moltbot, clawdbot/clawdbot)
+ARG OPENCLAW_VERSION=main
+RUN git clone --depth 1 --branch ${OPENCLAW_VERSION} https://github.com/openclaw/openclaw.git .
 
 # Copy Umbrel UI patches (applied after build if UMBREL_UI_OVERRIDE=1)
 COPY patches/ /tmp/patches/
 
 # Optional: Install additional apt packages for skills that need binaries
-ARG CLAWDBOT_DOCKER_APT_PACKAGES=""
-RUN if [ -n "$CLAWDBOT_DOCKER_APT_PACKAGES" ]; then \
+ARG OPENCLAW_DOCKER_APT_PACKAGES=""
+RUN if [ -n "$OPENCLAW_DOCKER_APT_PACKAGES" ]; then \
       apt-get update && \
-      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CLAWDBOT_DOCKER_APT_PACKAGES && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $OPENCLAW_DOCKER_APT_PACKAGES && \
       apt-get clean && \
       rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
     fi
@@ -40,7 +40,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm build
 
 # Build the UI (force pnpm for ARM compatibility)
-ENV CLAWDBOT_PREFER_PNPM=1
+ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:install
 RUN pnpm ui:build
 

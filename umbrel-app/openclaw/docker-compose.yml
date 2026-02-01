@@ -3,13 +3,14 @@ version: "3.7"
 services:
   app_proxy:
     environment:
-      APP_HOST: clawdbot_gateway_1
+      APP_HOST: openclaw_gateway_1
       APP_PORT: 18789
 
   gateway:
-    # Custom Clawdbot Docker image for Umbrel
-    # Built from: https://github.com/harmalh/clawdbot-umbrel
-    image: ghcr.io/harmalh/clawdbot-umbrel:v2026.1.23@sha256:60c7f6e066702485acc9faa0abd0fc55ee5804fdd0f80015857136fa816fb9a1
+    # Custom OpenClaw Docker image for Umbrel
+    # Built from: https://github.com/harmalh/openclaw-umbrel
+    # Note: Image will be updated to ghcr.io/harmalh/openclaw-umbrel after next build
+    image: ghcr.io/harmalh/clawdbot-umbrel:candidate-v2026.1.30@sha256:d9a2488e2182da956523f7e9c46919359f50b7b90b0222ebf547d90896d7017c
     user: "1000:1000"
     
     environment:
@@ -29,7 +30,7 @@ services:
       HOME: /home/node
     
     volumes:
-      # Persistent data directory - all Clawdbot state survives container updates
+      # Persistent data directory - all OpenClaw state survives container updates
       - "${APP_DATA_DIR}/data:/data"
     
     restart: on-failure

@@ -1,14 +1,14 @@
 /**
  * Umbrel Control UI Override
  * ==========================
- * This stylesheet fixes UI issues that occur when Clawdbot is embedded
+ * This stylesheet fixes UI issues that occur when OpenClaw is embedded
  * in Umbrel's app_proxy iframe context.
  *
  * Issues addressed:
  * 1. Config page doesn't scroll (content overflows instead of scrolling)
  * 2. Header text gets clipped due to max-height constraint
  *
- * These fixes mirror changes already merged to upstream Clawdbot `main` branch.
+ * These fixes mirror changes already merged to upstream OpenClaw `main` branch.
  * Once a tagged release includes these fixes, this override can be removed.
  *
  * See: https://github.com/openclaw/openclaw (ui/src/styles/config.css, layout.css)

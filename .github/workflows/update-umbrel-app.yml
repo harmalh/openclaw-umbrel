@@ -36,7 +36,7 @@ on:
       image:
         description: 'Image name (without tag/digest)'
         required: false
-        default: 'ghcr.io/harmalh/clawdbot-umbrel'
+        default: 'ghcr.io/harmalh/openclaw-umbrel'
       skip_lint:
         description: 'Skip local lint check'
         required: false
@@ -50,7 +50,7 @@ on:
 
 env:
   UMBREL_APPS_REPO: getumbrel/umbrel-apps
-  APP_ID: clawdbot
+  APP_ID: openclaw
   NODE_VERSION: '20'
 
 jobs:
@@ -63,7 +63,7 @@ jobs:
       - name: Check out this repository
         uses: actions/checkout@v4
         with:
-          path: clawdbot-umbrel
+          path: openclaw-umbrel
 
       - name: Parse event payload
         id: payload
@@ -195,13 +195,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.UMBREL_APPS_PAT }}
         run: |
-          # Check if there's an existing open PR for clawdbot from our fork
+          # Check if there's an existing open PR for openclaw from our fork
           # This ensures we always update the same PR until it's merged
           EXISTING_PR=$(gh pr list --repo ${{ env.UMBREL_APPS_REPO }} \
             --author "${{ github.repository_owner }}" \
             --state open \
             --json number,headRefName,title \
-            --jq '.[] | select(.title | test("clawdbot"; "i"))' 2>/dev/null | head -1 || echo "")
+            --jq '.[] | select(.title | test("openclaw"; "i"))' 2>/dev/null | head -1 || echo "")
           
           if [[ -n "$EXISTING_PR" && "$EXISTING_PR" != "null" ]]; then
             EXISTING_BRANCH=$(echo "$EXISTING_PR" | jq -r '.headRefName')
@@ -230,11 +230,11 @@ jobs:
             echo "Reusing existing PR branch: $BRANCH"
           elif [[ "$IS_UPDATE" == "true" ]]; then
             # App already exists upstream - use version-specific branch for update PRs
-            BRANCH="update-clawdbot-${VERSION}"
+            BRANCH="update-openclaw-${VERSION}"
             echo "Using version-specific branch for update: $BRANCH"
           else
             # New submission with no existing PR - use fixed branch
-            BRANCH="add-clawdbot"
+            BRANCH="add-openclaw"
             echo "Using fixed branch for new submission: $BRANCH"
           fi
           
@@ -258,7 +258,7 @@ jobs:
         run: |
           if [[ ! -d "umbrel-apps/${{ env.APP_ID }}" ]]; then
             echo "App directory doesn't exist, copying from this repo..."
-            cp -r clawdbot-umbrel/umbrel-app/${{ env.APP_ID }} umbrel-apps/
+            cp -r openclaw-umbrel/umbrel-app/${{ env.APP_ID }} umbrel-apps/
           fi
 
       - name: Update docker-compose.yml (image only)
@@ -318,7 +318,7 @@ jobs:
           # Only set releaseNotes for UPDATES (not new submissions)
           # Umbrel requires releaseNotes to be empty for new submissions
           if [[ "$IS_UPDATE" == "true" ]]; then
-            sed -i "s|^releaseNotes:.*|releaseNotes: \"Updated to Clawdbot ${VERSION} (${DATE})\"|" "$APP_FILE"
+            sed -i "s|^releaseNotes:.*|releaseNotes: \"Updated to OpenClaw ${VERSION} (${DATE})\"|" "$APP_FILE"
             echo "✅ Set releaseNotes for update"
           else
             # Ensure releaseNotes is empty for new submissions
@@ -387,7 +387,7 @@ jobs:
             exit 0
           fi
           
-          git commit -m "Update Clawdbot to ${VERSION}" -m "Automated update from clawdbot-umbrel CI
+          git commit -m "Update OpenClaw to ${VERSION}" -m "Automated update from openclaw-umbrel CI
 
           Changes:
           - Updated Docker image to ${VERSION} with digest pinning
@@ -433,25 +433,25 @@ jobs:
           
           # Determine PR title based on whether this is a new submission or update
           if [[ "$IS_UPDATE" == "true" ]]; then
-            PR_TITLE="Update Clawdbot to ${VERSION}"
+            PR_TITLE="Update OpenClaw to ${VERSION}"
           else
-            PR_TITLE="App Submission: Clawdbot"
+            PR_TITLE="App Submission: OpenClaw"
           fi
           
           # Build PR body
           PR_BODY="## Summary
 
-          This PR adds the Clawdbot app to the Umbrel App Store (version ${VERSION}).
+          This PR adds the OpenClaw app to the Umbrel App Store (version ${VERSION}).
 
           ${RELEASE_SECTION}## Changes
 
-          - Docker image: \`ghcr.io/harmalh/clawdbot-umbrel:${VERSION}\`
+          - Docker image: \`ghcr.io/harmalh/openclaw-umbrel:${VERSION}\`
           - Image digest: \`${DIGEST}\`
           - Multi-arch build: linux/amd64 + linux/arm64
 
           ---
 
-          *Automated PR from [clawdbot-umbrel](https://github.com/${{ github.repository }})*"
+          *Automated PR from [openclaw-umbrel](https://github.com/${{ github.repository }})*"
           
           # Check if PR already exists (either from earlier step or by branch check)
           if [[ -n "$EXISTING_PR_NUM" ]]; then

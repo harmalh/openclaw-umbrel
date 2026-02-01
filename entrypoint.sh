@@ -2,12 +2,15 @@
 set -euo pipefail
 
 # =============================================================================
-# Clawdbot Umbrel Entrypoint
+# OpenClaw Umbrel Entrypoint
 # =============================================================================
 # This script:
 # 1. Ensures data directories exist
 # 2. Creates a minimal config if none exists (first-run)
-# 3. Starts the Clawdbot Gateway
+# 3. Starts the OpenClaw Gateway
+#
+# Note: Environment variables still use CLAWDBOT_* prefix for backward
+# compatibility with existing configs and upstream OpenClaw defaults.
 # =============================================================================
 
 CONFIG_DIR="${CLAWDBOT_STATE_DIR:-/data/.clawdbot}"
@@ -15,7 +18,7 @@ WORKSPACE_DIR="${CLAWDBOT_WORKSPACE_DIR:-/data/clawd}"
 LOG_DIR="${CLAWDBOT_LOG_DIR:-/data/logs}"
 CONFIG_FILE="${CONFIG_DIR}/clawdbot.json"
 
-echo "[entrypoint] Clawdbot Umbrel starting..."
+echo "[entrypoint] OpenClaw Umbrel starting..."
 echo "[entrypoint] Config dir: ${CONFIG_DIR}"
 echo "[entrypoint] Workspace dir: ${WORKSPACE_DIR}"
 echo "[entrypoint] Log dir: ${LOG_DIR}"
@@ -41,10 +44,10 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
   fi
   
   # Create minimal valid JSON config for Umbrel
-  # Only include keys that Clawdbot's config validator accepts
-  # Note: Clawdbot substitutes ${ENV_VAR} at config load time
+  # Only include keys that OpenClaw's config validator accepts
+  # Note: OpenClaw substitutes ${ENV_VAR} at config load time
   # Bundled extensions (memory-core) are now included in the image,
-  # so we let Clawdbot use its default plugin configuration
+  # so we let OpenClaw use its default plugin configuration
   cat > "${CONFIG_FILE}" << 'CONFIGEOF'
 {
   "gateway": {
@@ -74,7 +77,7 @@ fi
 # -----------------------------------------------------------------------------
 # Log startup info
 # -----------------------------------------------------------------------------
-echo "[entrypoint] Starting Clawdbot Gateway..."
+echo "[entrypoint] Starting OpenClaw Gateway..."
 echo "[entrypoint] Gateway will be available at http://0.0.0.0:18789"
 echo "[entrypoint] Control UI: http://<umbrel-ip>:<app-port>/?token=<your-token>"
 

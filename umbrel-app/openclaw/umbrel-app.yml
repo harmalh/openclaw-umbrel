@@ -1,13 +1,13 @@
 manifestVersion: 1
-id: clawdbot
-name: Clawdbot
+id: openclaw
+name: OpenClaw
 tagline: Your own personal AI assistant - any platform, self-hosted
 category: ai
-version: "2026.1.24"
+version: "2026.1.30"
 port: 30189
 path: ""
 description: >-
-  Clawdbot is a self-hosted AI assistant control plane that connects to multiple messaging platforms (WhatsApp, Telegram, Discord, Slack, Signal, iMessage) and AI providers (Anthropic Claude, OpenAI, local models).
+  OpenClaw is a self-hosted AI assistant control plane that connects to multiple messaging platforms (WhatsApp, Telegram, Discord, Slack, Signal, iMessage) and AI providers (Anthropic Claude, OpenAI, local models).
   
   
   Features:
@@ -20,11 +20,11 @@ description: >-
   
   
   After installation, open the app and enter the **app password** in the **Gateway Token** field to access the Control UI. Then configure your AI provider credentials and connect your messaging platforms.
-developer: Clawdbot
-website: https://clawd.bot
+developer: OpenClaw
+website: https://openclaw.ai
 dependencies: []
-repo: https://github.com/clawdbot/clawdbot
-support: https://github.com/clawdbot/clawdbot/issues
+repo: https://github.com/openclaw/openclaw
+support: https://github.com/openclaw/openclaw/issues
 gallery: []
 # Empty for new submissions per Umbrel App Framework guidelines
 releaseNotes: ""

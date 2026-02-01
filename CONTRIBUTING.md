@@ -1,12 +1,12 @@
-# Contributing to Clawdbot for Umbrel
+# Contributing to OpenClaw for Umbrel
 
 ## Submitting to Umbrel App Store
 
-Follow these steps to submit Clawdbot to the official Umbrel App Store.
+Follow these steps to submit OpenClaw to the official Umbrel App Store.
 
 ### Prerequisites
 
-1. A working Clawdbot Umbrel image published to GHCR
+1. A working OpenClaw Umbrel image published to GHCR
 2. The app tested on both ARM64 and AMD64
 3. A GitHub account
 
@@ -19,7 +19,7 @@ The Umbrel App Store requires certain assets:
 - Format: PNG or SVG
 - Size: 256x256 pixels minimum
 - Location: Host publicly (GitHub raw, CDN, etc.)
-- Current: Using Clawdbot's official logo
+- Current: Using OpenClaw's official logo
 
 #### Gallery Images (Recommended)
 
@@ -34,7 +34,7 @@ After building and pushing your image:
 
 ```bash
 # Get the manifest digest
-docker buildx imagetools inspect ghcr.io/<owner>/clawdbot-umbrel:v1.0.0
+docker buildx imagetools inspect ghcr.io/<owner>/openclaw-umbrel:v1.0.0
 
 # Output includes:
 # Digest: sha256:abc123...
@@ -46,7 +46,7 @@ Replace the image line with the digest-pinned version:
 
 ```yaml
 gateway:
-  image: ghcr.io/<owner>/clawdbot-umbrel:v1.0.0@sha256:abc123...
+  image: ghcr.io/<owner>/openclaw-umbrel:v1.0.0@sha256:abc123...
 ```
 
 ### Step 4: Fork umbrel-apps
@@ -61,28 +61,28 @@ gateway:
 cd umbrel-apps
 
 # Copy the app definition
-cp -r /path/to/clawdbot-umbrel/umbrel-app/clawdbot .
+cp -r /path/to/openclaw-umbrel/umbrel-app/openclaw .
 
 # Verify structure
-ls clawdbot/
+ls openclaw/
 # Should show: docker-compose.yml  exports.sh  umbrel-app.yml
 ```
 
 ### Step 6: Create Pull Request
 
-1. Create a branch: `git checkout -b add-clawdbot`
-2. Commit: `git add clawdbot && git commit -m "Add Clawdbot app"`
-3. Push: `git push origin add-clawdbot`
+1. Create a branch: `git checkout -b add-openclaw`
+2. Commit: `git add openclaw && git commit -m "Add OpenClaw app"`
+3. Push: `git push origin add-openclaw`
 4. Open PR on GitHub
 
 ### PR Template
 
 ```markdown
-## App Submission: Clawdbot
+## App Submission: OpenClaw
 
 ### Description
 
-Clawdbot is a self-hosted AI assistant control plane that connects to
+OpenClaw is a self-hosted AI assistant control plane that connects to
 multiple messaging platforms and AI providers.
 
 ### Checklist
@@ -120,7 +120,7 @@ Umbrel maintainers may request:
 
 After acceptance:
 
-1. Monitor upstream Clawdbot releases
+1. Monitor upstream OpenClaw releases
 2. Build and push new images
 3. Update digest in docker-compose.yml
 4. Open update PR
@@ -133,14 +133,14 @@ The GitHub Actions workflows automate most of this process.
 
 ```bash
 # Build image
-docker build -t clawdbot-umbrel:dev .
+docker build -t openclaw-umbrel:dev .
 
 # Run locally
 docker run -it --rm \
   -p 18789:18789 \
   -v $(pwd)/test-data:/data \
   -e CLAWDBOT_GATEWAY_TOKEN=dev-token \
-  clawdbot-umbrel:dev
+  openclaw-umbrel:dev
 ```
 
 ### Testing Changes
@@ -150,9 +150,9 @@ docker run -it --rm \
 3. Test locally with docker run
 4. Test on actual Umbrel hardware
 
-### Updating Clawdbot Version
+### Updating OpenClaw Version
 
-1. Update `CLAWDBOT_VERSION` build arg
+1. Update `OPENCLAW_VERSION` build arg
 2. Test thoroughly
 3. Push new image
 4. Update Umbrel app definition

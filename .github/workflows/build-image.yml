@@ -1,4 +1,4 @@
-# Build and Push Clawdbot Umbrel Image
+# Build and Push OpenClaw Umbrel Image
 # =====================================
 # This workflow builds a multi-arch Docker image.
 #
@@ -25,7 +25,7 @@ on:
   # Manual trigger with full control
   workflow_dispatch:
     inputs:
-      clawdbot_version:
+      openclaw_version:
         description: 'Version to build (e.g., v2026.1.24 or main). Leave empty for latest release.'
         required: false
         default: ''
@@ -60,7 +60,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/clawdbot-umbrel
+  IMAGE_NAME: ${{ github.repository_owner }}/openclaw-umbrel
 
 # Workflow-level permissions
 # - contents: write is required for repository_dispatch to trigger update workflow
@@ -146,7 +146,7 @@ jobs:
         id: check_ui_fix
         env:
           LATEST_VERSION: ${{ steps.upstream.outputs.latest_version }}
-          INPUT_VERSION: ${{ github.event.inputs.clawdbot_version }}
+          INPUT_VERSION: ${{ github.event.inputs.openclaw_version }}
         run: |
           # Determine which version to check
           VERSION="${INPUT_VERSION:-$LATEST_VERSION}"
@@ -212,7 +212,7 @@ jobs:
       - name: Determine version to build
         id: check
         env:
-          INPUT_VERSION: ${{ github.event.inputs.clawdbot_version }}
+          INPUT_VERSION: ${{ github.event.inputs.openclaw_version }}
           FORCE_BUILD: ${{ github.event.inputs.force_build }}
           LATEST_VERSION: ${{ steps.upstream.outputs.latest_version }}
           EVENT_NAME: ${{ github.event_name }}
@@ -312,7 +312,7 @@ jobs:
           push: true
           tags: ${{ steps.tags.outputs.tags }}
           build-args: |
-            CLAWDBOT_VERSION=${{ needs.check-version.outputs.version }}
+            OPENCLAW_VERSION=${{ needs.check-version.outputs.version }}
             UMBREL_UI_OVERRIDE=${{ github.event.inputs.umbrel_ui_override == 'true' && '1' || '0' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,15 +1,15 @@
-# Clawdbot for Umbrel
+# OpenClaw for Umbrel
 
-Run [Clawdbot](https://clawd.bot) - your personal AI assistant control plane - on your Umbrel home server.
+Run [OpenClaw](https://openclaw.ai) - your personal AI assistant control plane - on your Umbrel home server.
 
 ## Overview
 
 This repository contains everything needed to:
 
 1. **Build** a multi-arch Docker image optimized for Umbrel (ARM64 + AMD64)
-2. **Package** Clawdbot as an Umbrel app with proper persistence and authentication
+2. **Package** OpenClaw as an Umbrel app with proper persistence and authentication
 3. **Submit** to the Umbrel App Store
-4. **Automate** updates when new Clawdbot versions are released
+4. **Automate** updates when new OpenClaw versions are released
 
 ---
 
@@ -17,7 +17,7 @@ This repository contains everything needed to:
 
 This repository includes a fully automated pipeline that:
 
-1. **Detects** new upstream Clawdbot releases (every 6 hours)
+1. **Detects** new upstream OpenClaw releases (every 6 hours)
 2. **Builds** multi-arch Docker images (amd64 + arm64)
 3. **Updates** the Umbrel App Store PR with the new version
 4. **Validates** changes with the Umbrel linter before submitting
@@ -96,13 +96,13 @@ If you suspect your local Umbrel is running a different version than the App Sto
 ssh umbrel@umbrel.local
 
 # Get the image digest currently running
-sudo docker inspect clawdbot_gateway_1 --format '{{.Image}}' | xargs sudo docker inspect --format '{{index .RepoDigests 0}}'
+sudo docker inspect openclaw_gateway_1 --format '{{.Image}}' | xargs sudo docker inspect --format '{{index .RepoDigests 0}}'
 ```
 
 **2. Get the PR's expected digest:**
 ```bash
 # From the PR's docker-compose.yml, look for the @sha256:... part
-# Example: ghcr.io/harmalh/clawdbot-umbrel:v2026.1.24@sha256:abc123...
+# Example: ghcr.io/harmalh/openclaw-umbrel:v2026.1.24@sha256:abc123...
 ```
 
 **3. Compare the digests:**
@@ -110,18 +110,18 @@ sudo docker inspect clawdbot_gateway_1 --format '{{.Image}}' | xargs sudo docker
 - If they differ: You're running a different version
 
 **4. Common mismatch causes:**
-- Running a different image entirely (e.g., `ghcr.io/zot24/clawdbot-docker`)
+- Running a different image entirely (e.g., a third-party image)
 - Running `:latest` tag instead of pinned version
 - Local manual installation with different image source
 
 **5. To align with App Store version:**
 ```bash
 # Update the docker-compose.yml in your local app-data
-sudo nano ~/umbrel/app-data/clawdbot/docker-compose.yml
+sudo nano ~/umbrel/app-data/openclaw/docker-compose.yml
 # Change the image line to match the PR's pinned image
 
 # Restart the app
-sudo ~/umbrel/scripts/app restart clawdbot
+sudo ~/umbrel/scripts/app restart openclaw
 ```
 
 ---
@@ -130,16 +130,16 @@ sudo ~/umbrel/scripts/app restart clawdbot
 
 ```bash
 # 1. Build the image locally
-docker build -t clawdbot-umbrel:local .
+docker build -t openclaw-umbrel:local .
 
 # 2. Copy the umbrel-app folder to your Umbrel
-rsync -av umbrel-app/clawdbot/ umbrel@umbrel.local:/home/umbrel/umbrel/app-data/clawdbot/
+rsync -av umbrel-app/openclaw/ umbrel@umbrel.local:/home/umbrel/umbrel/app-data/openclaw/
 
 # 3. Install via Umbrel CLI
-ssh umbrel@umbrel.local "umbreld client apps.install.mutate --appId clawdbot"
+ssh umbrel@umbrel.local "umbreld client apps.install.mutate --appId openclaw"
 
 # 4. Open from Umbrel Web UI (not direct URL!)
-# Go to http://umbrel.local → click Clawdbot → enter your Umbrel app password as token
+# Go to http://umbrel.local → click OpenClaw → enter your Umbrel app password as token
 ```
 
 ---
@@ -158,36 +158,36 @@ ssh umbrel@umbrel.local
 
 # Create timestamped backup
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-tar -czvf ~/clawdbot-backup-${TIMESTAMP}.tar.gz -C ~/umbrel/app-data/clawdbot data/
+tar -czvf ~/openclaw-backup-${TIMESTAMP}.tar.gz -C ~/umbrel/app-data/openclaw data/
 
 # Download to your PC (run from your local machine)
-scp umbrel@umbrel.local:~/clawdbot-backup-*.tar.gz ./
+scp umbrel@umbrel.local:~/openclaw-backup-*.tar.gz ./
 ```
 
 ### 2. Uninstall and Wipe Data
 
 ```bash
 # Uninstall the app
-umbreld client apps.uninstall.mutate --appId clawdbot
+umbreld client apps.uninstall.mutate --appId openclaw
 
 # Wipe persistent data for a truly fresh start
-sudo rm -rf ~/umbrel/app-data/clawdbot/data
+sudo rm -rf ~/umbrel/app-data/openclaw/data
 ```
 
 ### 3. Update Image and Reinstall
 
 ```bash
 # Update the image reference (replace IMAGE_REF with the actual reference)
-sed -i 's|image:.*|image: IMAGE_REF|' ~/umbrel/app-data/clawdbot/docker-compose.yml
+sed -i 's|image:.*|image: IMAGE_REF|' ~/umbrel/app-data/openclaw/docker-compose.yml
 
 # Reinstall (creates fresh data directory)
-umbreld client apps.install.mutate --appId clawdbot
+umbreld client apps.install.mutate --appId openclaw
 ```
 
 ### 4. Verify from Umbrel Web UI
 
 1. Open the **Umbrel Web UI** at http://umbrel.local
-2. Navigate to the **Clawdbot** app and click to open
+2. Navigate to the **OpenClaw** app and click to open
 3. When prompted, enter your **Umbrel app password** as the token (see [Token Copy Flow](#10-token-copy-flow))
 4. Configure an LLM backend (e.g., Anthropic, OpenAI, or local Ollama)
 5. Send a test chat message
@@ -197,13 +197,13 @@ umbreld client apps.install.mutate --appId clawdbot
 
 ```bash
 # Stop the app
-umbreld client apps.stop.mutate --appId clawdbot
+umbreld client apps.stop.mutate --appId openclaw
 
 # Extract backup (replace TIMESTAMP with your backup filename)
-tar -xzvf ~/clawdbot-backup-TIMESTAMP.tar.gz -C ~/umbrel/app-data/clawdbot/
+tar -xzvf ~/openclaw-backup-TIMESTAMP.tar.gz -C ~/umbrel/app-data/openclaw/
 
 # Restart the app
-umbreld client apps.start.mutate --appId clawdbot
+umbreld client apps.start.mutate --appId openclaw
 ```
 
 ---
@@ -212,7 +212,7 @@ umbreld client apps.start.mutate --appId clawdbot
 
 ### 1. HTTP + WebCrypto Security Context (CRITICAL)
 
-**Problem**: Umbrel serves apps over plain HTTP (`http://umbrel.local:<port>`). Browsers treat HTTP as a "non-secure context" and block certain WebCrypto APIs. Clawdbot's Control UI uses device identity for security and may refuse to load.
+**Problem**: Umbrel serves apps over plain HTTP (`http://umbrel.local:<port>`). Browsers treat HTTP as a "non-secure context" and block certain WebCrypto APIs. OpenClaw's Control UI uses device identity for security and may refuse to load.
 
 **Solution**: The entrypoint automatically sets `gateway.controlUi.allowInsecureAuth: true` in the config. This allows token-based authentication over HTTP.
 
@@ -220,7 +220,7 @@ umbreld client apps.start.mutate --appId clawdbot
 
 ### 2. Gateway Bind/Auth Guardrail
 
-**Problem**: Clawdbot refuses to start if bound beyond loopback (`--bind lan`) without authentication configured.
+**Problem**: OpenClaw refuses to start if bound beyond loopback (`--bind lan`) without authentication configured.
 
 **Symptoms**:
 - Gateway fails to start with auth-related errors
@@ -230,13 +230,13 @@ umbreld client apps.start.mutate --appId clawdbot
 
 ### 3. Interactive Onboarding Wizard
 
-**Problem**: Clawdbot's normal installation uses an interactive CLI wizard (`clawdbot onboard`). This doesn't work in Umbrel's headless Docker environment.
+**Problem**: OpenClaw's normal installation uses an interactive CLI wizard (`openclaw onboard`). This doesn't work in Umbrel's headless Docker environment.
 
 **Solution**: The entrypoint script automatically creates a minimal config on first run, bypassing the wizard. Users configure everything through the Control UI instead.
 
 ### 4. Container Chrome/Browser Issues
 
-**Problem**: Some Clawdbot skills use browser automation (Puppeteer). Container environments often lack proper Chrome binaries or display servers.
+**Problem**: Some OpenClaw skills use browser automation (Puppeteer). Container environments often lack proper Chrome binaries or display servers.
 
 **Solution**: Browser automation is disabled by default (`browser.enabled: false`). Enable only if you add Chrome to the image.
 
@@ -248,7 +248,7 @@ umbreld client apps.start.mutate --appId clawdbot
 
 ```bash
 docker buildx build --platform linux/arm64,linux/amd64 \
-  -t ghcr.io/<owner>/clawdbot-umbrel:v1.0.0 \
+  -t ghcr.io/<owner>/openclaw-umbrel:v1.0.0 \
   --push .
 ```
 
@@ -259,21 +259,21 @@ docker buildx build --platform linux/arm64,linux/amd64 \
 **Solution**: After pushing, get the manifest digest and update `docker-compose.yml`:
 
 ```yaml
-image: ghcr.io/<owner>/clawdbot-umbrel:v1.0.0@sha256:abc123...
+image: ghcr.io/<owner>/openclaw-umbrel:v1.0.0@sha256:abc123...
 ```
 
 ### 7. UID 1000 Permissions
 
 **Problem**: Umbrel containers should run as UID 1000. Running as root causes permission issues with mounted volumes.
 
-**Solution**: The Dockerfile creates a `clawdbot` user with UID 1000 and switches to it in the final stage.
+**Solution**: The Dockerfile uses the existing `node` user with UID 1000 (standard in node Docker images).
 
 ### 8. Data Persistence
 
 **Problem**: Umbrel destroys container data on uninstall. If you reinstall, all config and conversations are lost.
 
 **Important**: All persistent data lives in `${APP_DATA_DIR}/data` which maps to:
-- `/data/.clawdbot/` - Clawdbot config, sessions, agent state
+- `/data/.clawdbot/` - OpenClaw config, sessions, agent state
 - `/data/clawd/` - Agent workspace (memory, skills, files)
 - `/data/logs/` - Persistent log files
 
@@ -281,7 +281,7 @@ image: ghcr.io/<owner>/clawdbot-umbrel:v1.0.0@sha256:abc123...
 
 ### 9. Port Conflicts
 
-**Problem**: The default Clawdbot port (18789) might conflict with other services.
+**Problem**: The default OpenClaw port (18789) might conflict with other services.
 
 **Solution**: The internal port stays 18789, but Umbrel exposes it on 30189 (configurable in `umbrel-app.yml`). The `app_proxy` handles the translation.
 
@@ -289,13 +289,13 @@ image: ghcr.io/<owner>/clawdbot-umbrel:v1.0.0@sha256:abc123...
 
 **Problem**: Users don't know how to authenticate with the Control UI on first run.
 
-**Important**: On first run, when you open Clawdbot from the Umbrel Web UI, the Control UI will prompt for a token. This is a one-time setup step.
+**Important**: On first run, when you open OpenClaw from the Umbrel Web UI, the Control UI will prompt for a token. This is a one-time setup step.
 
 **Flow**:
-1. Install Clawdbot from Umbrel App Store (or manually)
+1. Install OpenClaw from Umbrel App Store (or manually)
 2. Open the app **from the Umbrel Web UI** (not via direct URL)
 3. The Control UI will show a token prompt
-4. Find the app password in Umbrel UI: click the Clawdbot app card, look for "Default Password" or credentials
+4. Find the app password in Umbrel UI: click the OpenClaw app card, look for "Default Password" or credentials
 5. Paste the password as the token in Control UI's login prompt
 6. Control UI stores the token in browser localStorage for future visits
 
@@ -303,7 +303,7 @@ image: ghcr.io/<owner>/clawdbot-umbrel:v1.0.0@sha256:abc123...
 
 ---
 
-## Useful Information from Clawdbot Documentation
+## Useful Information from OpenClaw Documentation
 
 ### Runtime Requirements
 
@@ -324,7 +324,7 @@ image: ghcr.io/<owner>/clawdbot-umbrel:v1.0.0@sha256:abc123...
 
 ### Configuration Format
 
-Clawdbot uses JSON5 (JSON with comments and trailing commas). Example:
+OpenClaw uses JSON5 (JSON with comments and trailing commas). Example:
 
 ```json5
 {
@@ -391,16 +391,16 @@ All logs are written to `/data/logs/clawdbot.log` inside the container, which ma
 **From Umbrel host**:
 ```bash
 # Tail live logs
-tail -f ~/umbrel/app-data/clawdbot/data/logs/clawdbot.log
+tail -f ~/umbrel/app-data/openclaw/data/logs/clawdbot.log
 
 # View last 100 lines
-tail -100 ~/umbrel/app-data/clawdbot/data/logs/clawdbot.log
+tail -100 ~/umbrel/app-data/openclaw/data/logs/clawdbot.log
 ```
 
 **Via Docker**:
 ```bash
 # Container stdout (also logged to file)
-docker logs -f clawdbot_gateway_1
+docker logs -f openclaw_gateway_1
 
 # Or use Umbrel's app logs feature in the UI
 ```
@@ -410,8 +410,8 @@ docker logs -f clawdbot_gateway_1
 The default setup uses `tee` to write to both stdout and the log file. For production use, consider adding logrotate:
 
 ```bash
-# /etc/logrotate.d/clawdbot
-/home/umbrel/umbrel/app-data/clawdbot/data/logs/*.log {
+# /etc/logrotate.d/openclaw
+/home/umbrel/umbrel/app-data/openclaw/data/logs/*.log {
     daily
     rotate 7
     compress
@@ -445,7 +445,7 @@ CLAWDBOT_LOG_LEVEL=debug
 
 ### Built-in Health Endpoint
 
-The Clawdbot Gateway exposes a health endpoint at `/health` that returns status information.
+The OpenClaw Gateway exposes a health endpoint at `/health` that returns status information.
 
 **Check from host**:
 ```bash
@@ -494,10 +494,10 @@ healthcheck:
 curl http://umbrel.local:30189/health
 
 # Check container status
-docker ps | grep clawdbot
+docker ps | grep openclaw
 
 # View logs
-docker logs clawdbot_gateway_1
+docker logs openclaw_gateway_1
 ```
 
 ### CLI Health Command
@@ -536,25 +536,25 @@ docker buildx inspect --bootstrap
 docker buildx build \
   --platform linux/arm64,linux/amd64 \
   --build-arg CLAWDBOT_VERSION=v1.0.0 \
-  -t ghcr.io/<owner>/clawdbot-umbrel:v1.0.0 \
+  -t ghcr.io/<owner>/openclaw-umbrel:v1.0.0 \
   --push .
 
 # Get the manifest digest
-docker buildx imagetools inspect ghcr.io/<owner>/clawdbot-umbrel:v1.0.0
+docker buildx imagetools inspect ghcr.io/<owner>/openclaw-umbrel:v1.0.0
 ```
 
 ### Local Build (Single Arch)
 
 ```bash
 # Build for current architecture only
-docker build -t clawdbot-umbrel:local .
+docker build -t openclaw-umbrel:local .
 
 # Run locally for testing
 docker run -it --rm \
   -p 18789:18789 \
   -v ./data:/data \
   -e CLAWDBOT_GATEWAY_TOKEN=test-token \
-  clawdbot-umbrel:local
+  openclaw-umbrel:local
 ```
 
 ---
@@ -568,7 +568,7 @@ See `.github/workflows/build-image.yml`:
 - **Schedule**: Checks for new releases every 6 hours
 - **Trigger**: Manual via `workflow_dispatch` with optional version override
 - **Actions**:
-  - Fetches latest upstream Clawdbot release (with validation)
+  - Fetches latest upstream OpenClaw release (with validation)
   - Builds multi-arch image (amd64 + arm64) via buildx
   - Pushes to GHCR with version tag + `latest`
   - Validates manifest digest format
@@ -604,7 +604,7 @@ See `.github/workflows/update-umbrel-app.yml`:
 ### Control UI Won't Load
 
 1. Check container is healthy: `docker ps`
-2. Check logs: `docker logs clawdbot_gateway_1`
+2. Check logs: `docker logs openclaw_gateway_1`
 3. Verify port mapping: `curl http://umbrel.local:30189/health`
 
 ### Gateway Won't Start
@@ -627,12 +627,64 @@ See `.github/workflows/update-umbrel-app.yml`:
 
 ---
 
+---
+
+## Migration Guide (Clawdbot → OpenClaw)
+
+If you previously installed the app under the old name "Clawdbot" (app ID: `clawdbot`), follow these steps to migrate to the new "OpenClaw" (app ID: `openclaw`):
+
+### Important: Data Path Change
+
+The app data directory changes from:
+- **Old**: `~/umbrel/app-data/clawdbot/data/`
+- **New**: `~/umbrel/app-data/openclaw/data/`
+
+If you don't migrate your data, you'll start with a fresh installation.
+
+### Migration Steps
+
+```bash
+# 1. SSH into your Umbrel
+ssh umbrel@umbrel.local
+
+# 2. Stop the old app (if still running)
+umbreld client apps.stop.mutate --appId clawdbot 2>/dev/null || true
+
+# 3. Backup old data
+cp -r ~/umbrel/app-data/clawdbot/data ~/clawdbot-data-backup
+
+# 4. Uninstall old app (optional, keeps data in app-data/clawdbot)
+umbreld client apps.uninstall.mutate --appId clawdbot 2>/dev/null || true
+
+# 5. Install new OpenClaw app
+umbreld client apps.install.mutate --appId openclaw
+
+# 6. Stop new app before migrating data
+umbreld client apps.stop.mutate --appId openclaw
+
+# 7. Copy old data to new location
+sudo cp -r ~/clawdbot-data-backup/* ~/umbrel/app-data/openclaw/data/
+sudo chown -R 1000:1000 ~/umbrel/app-data/openclaw/data
+
+# 8. Start the new app
+umbreld client apps.start.mutate --appId openclaw
+```
+
+### For Users of the Old GHCR Image
+
+If you were using images from `ghcr.io/harmalh/clawdbot-umbrel`, note that:
+- Old images will remain available (not deleted)
+- New images are published to `ghcr.io/harmalh/openclaw-umbrel`
+- Update your `docker-compose.yml` image reference to the new path
+
+---
+
 ## License
 
-Clawdbot is MIT licensed. This Umbrel packaging is community-maintained.
+OpenClaw is MIT licensed. This Umbrel packaging is community-maintained.
 
 ## Links
 
-- [Clawdbot Documentation](https://docs.clawd.bot)
-- [Clawdbot GitHub](https://github.com/clawdbot/clawdbot)
+- [OpenClaw Documentation](https://docs.openclaw.ai)
+- [OpenClaw GitHub](https://github.com/openclaw/openclaw)
 - [Umbrel App Store Guide](https://github.com/getumbrel/umbrel-apps)
