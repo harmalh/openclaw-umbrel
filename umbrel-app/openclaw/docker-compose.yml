@@ -9,8 +9,7 @@ services:
   gateway:
     # Custom OpenClaw Docker image for Umbrel
     # Built from: https://github.com/harmalh/openclaw-umbrel
-    # Note: Image will be updated to ghcr.io/harmalh/openclaw-umbrel after next build
-    image: ghcr.io/harmalh/clawdbot-umbrel:candidate-v2026.1.30@sha256:d9a2488e2182da956523f7e9c46919359f50b7b90b0222ebf547d90896d7017c
+    image: ghcr.io/harmalh/openclaw-umbrel:candidate-v2026.1.30@sha256:cf1cbe7cdf2cb5a65cb3e873405bf9910a1bfa784f912a6ff22b2d68da8de685
     user: "1000:1000"
     
     environment:
